@@ -1,0 +1,30 @@
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Environment variables & API keys
+.env
+.env.local
+
+# Database & SQLite Cache
+*.db
+specsense_cache.db
+*.sqlite3
+
+# Test artifacts
+test_*.pdf
+test_*.py
+
+# Editor & OS settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

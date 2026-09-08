@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SpecSense — AI Product Intelligence for Industrial Commerce</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --ink: #071524;
+      --panel: #0d233a;
+      --panel-raised: #133353;
+      --line: #1e466d;
+      --paper: #eaf2fb;
+      --steel: #8aa3c0;
+      --amber: #f5a623;
+      --green: #4fd1a5;
+      --cyan: #38bdf8;
+      --coral: #ff6b4a;
+      --purple: #a78bfa;
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--ink);
+      background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 40px 40px;
+      background-attachment: fixed;
+      background-position: -1px -1px;
+      color: var(--paper);
+      font-family: 'Inter', -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1,
+    h2,
+    h3,
+    .display {
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .mono {
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    a {
+      color: var(--amber);
+    }
+
+    /* Top Telemetry Header */
+    .telemetry-bar {
+      background: rgba(13, 35, 58, 0.85);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
+      padding: 8px 32px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .telemetry-items {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .t-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(30, 70, 109, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      color: var(--steel);
+    }
+
+    .t-badge.active {
+      color: var(--paper);
+      border-color: rgba(79, 209, 165, 0.3);
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--steel);
+    }
+
+    .dot.green {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+
+    .dot.amber {
+      background: var(--amber);
+      box-shadow: 0 0 6px var(--amber);
+    }
+
+    .dot.cyan {
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan);
+    }
+
+    header {
+      padding: 32px 32px 20px;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .eyebrow {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin: 0 0 8px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    header p.tagline {
+      margin: 8px 0 0;
+      color: var(--steel);
+      font-size: 14.5px;
+      line-height: 1.6;
+      max-width: 740px;
+    }
+
+    nav {
+      display: flex;
+      gap: 4px;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 0 32px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    nav button {
+      background: transparent;
+      border: none;
+      color: var(--steel);
+      padding: 12px 18px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    nav button:hover {
+      color: var(--paper);
+    }
+
+    nav button.active {
+      color: var(--amber);
+      border-bottom-color: var(--amber);
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 24px 32px 60px;
+    }
+
+    .panel {
+      display: none;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    .card h3 {
+      margin: 0 0 4px;
+      font-size: 16px;
+    }
+
+    .card .hint {
+      color: var(--steel);
+      font-size: 13px;
+      margin: 0 0 16px;
+      line-height: 1.5;
+    }
+
+    /* Mode Selector Pills */
+    .mode-selector {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+
+    .mode-pill {
+      background: var(--ink);
+      border: 1px solid var(--line);
+      color: var(--steel);
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12.5px;
+      font-family: 'IBM Plex Mono', monospace;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mode-pill:hover {
+      border-color: var(--steel);
+      color: var(--paper);
+    }
+
+    .mode-pill.active {
+      background: rgba(245, 166, 35, 0.15);
+      border-color: var(--amber);
+      color: var(--amber);
+      font-weight: 600;
+    }
+
+    .mode-pill.active.offline {
+      background: rgba(79, 209, 165, 0.15);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--steel);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      background: var(--ink);
+      border: 1px solid var(--line);
+      color: var(--paper);
+      padding: 11px 13px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      margin-bottom: 6px;
+      transition: border-color 0.15s ease;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--amber);
+    }
+
+    .field-hint {
+      font-size: 12px;
+      color: var(--steel);
+      margin: 0 0 16px;
+      opacity: 0.85;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    button.primary {
+      background: var(--amber);
+      color: #1a1206;
+      border: none;
+      padding: 11px 22px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-family: 'Space Grotesk', sans-serif;
+      cursor: pointer;
+      font-size: 14px;
+      transition: transform 0.1s ease, box-shadow 0.15s ease;
+    }
+
+    button.primary:hover {
+      box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.2);
+    }
+
+    button.primary:active {
+      transform: scale(0.98);
+    }
+
+    button.primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    button.ghost {
+      background: transparent;
+      color: var(--steel);
+      border: 1px solid var(--line);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.15s ease;
+    }
+
+    button.ghost:hover {
+      color: var(--paper);
+      border-color: var(--steel);
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: center;
+      margin: 22px 0 4px;
+      position: relative;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      position: relative;
+      z-index: 1;
+    }
+
+    .stage .node {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 2px solid var(--line);
+      background: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--steel);
+      transition: all 0.3s ease;
+    }
+
+    .stage .label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10.5px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--steel);
+      text-align: center;
+      transition: color 0.3s ease;
+    }
+
+    .stage.active .node {
+      border-color: var(--amber);
+      color: var(--amber);
+      box-shadow: 0 0 0 4px rgba(245, 166, 35, 0.15);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .stage.active .label {
+      color: var(--amber);
+    }
+
+    .stage.done .node {
+      border-color: var(--green);
+      background: var(--green);
+      color: var(--ink);
+    }
+
+    .stage.done .label {
+      color: var(--green);
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 4px rgba(245, 166, 35, 0.15); }
+      50% { box-shadow: 0 0 0 8px rgba(245, 166, 35, 0.06); }
+    }
+
+    .pipeline .track {
+      position: absolute;
+      top: 15px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: repeating-linear-gradient(90deg, var(--line) 0 6px, transparent 6px 12px);
+      z-index: 0;
+    }
+
+    .pipeline .track-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      background: var(--green);
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    .field-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 13px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .field-row:last-child {
+      border-bottom: none;
+    }
+
+    .field-name {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--steel);
+      width: 140px;
+      flex-shrink: 0;
+      padding-top: 3px;
+    }
+
+    .field-value {
+      flex: 1;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .field-value .empty-val {
+      color: var(--steel);
+      font-style: italic;
+    }
+
+    .badge {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10.5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 600;
+      margin-left: 8px;
+      white-space: nowrap;
+      cursor: help;
+      position: relative;
+    }
+
+    .badge.high {
+      background: rgba(79, 209, 165, 0.15);
+      color: var(--green);
+    }
+
+    .badge.med {
+      background: rgba(245, 166, 35, 0.15);
+      color: var(--amber);
+    }
+
+    .badge.low {
+      background: rgba(255, 107, 74, 0.15);
+      color: var(--coral);
+    }
+
+    .badge.engine {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--cyan);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .source-link {
+      font-size: 11px;
+      color: var(--steel);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 5px;
+    }
+
+    .source-link:hover {
+      color: var(--amber);
+    }
+
+    .product-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .product-title .brand {
+      color: var(--steel);
+      font-weight: 500;
+    }
+
+    .status-line {
+      font-size: 13px;
+      color: var(--steel);
+      margin: 14px 0 0;
+      min-height: 18px;
+    }
+
+    .status-line.error {
+      color: var(--coral);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--steel);
+    }
+
+    .empty-state .icon {
+      font-size: 28px;
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+
+    .empty-state p {
+      margin: 4px 0;
+      font-size: 13.5px;
+      line-height: 1.6;
+    }
+
+    .batch-summary {
+      display: flex;
+      gap: 28px;
+      padding: 4px 0 8px;
+    }
+
+    .batch-summary div {
+      text-align: center;
+    }
+
+    .batch-summary .num {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 26px;
+      font-weight: 700;
+    }
+
+    .batch-summary .lbl {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--steel);
+      margin-top: 2px;
+    }
+
+    .flagged-item {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+
+    .flagged-item .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 13px;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .flagged-item .pn {
+      color: var(--amber);
+      font-weight: 600;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .flagged-item .current {
+      font-size: 12.5px;
+      color: var(--steel);
+      margin-bottom: 10px;
+    }
+
+    .example-chip {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11.5px;
+      background: var(--ink);
+      border: 1px dashed var(--line);
+      color: var(--steel);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .example-chip:hover {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+
+    @media (max-width: 640px) {
+      .telemetry-bar, header, nav, main {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+      .field-row {
+        flex-direction: column;
+        gap: 4px;
+      }
+      .field-name {
+        width: auto;
+      }
+      .stage .label {
+        font-size: 9px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Live System Telemetry Bar -->
+  <div class="telemetry-bar">
+    <div class="telemetry-items">
+      <span style="color: var(--paper); font-weight: 600;">SpecSense Engine Status:</span>
+      <span class="t-badge active" id="t-gemini"><span class="dot green"></span> Gemini AI Cascade</span>
+      <span class="t-badge active" id="t-groq"><span class="dot green"></span> Groq AI Pool</span>
+      <span class="t-badge active" id="t-offline"><span class="dot cyan"></span> Zero-API Spec Engine</span>
+      <span class="t-badge active" id="t-cache"><span class="dot green"></span> SQLite Cache (<span id="t-cache-count">0</span>)</span>
+      <span class="t-badge active" id="t-rag"><span class="dot green"></span> Local RAG (<span id="t-rag-count">0</span> chunks)</span>
+    </div>
+    <div class="telemetry-items">
+      <button class="ghost" id="btn-clear-cache" style="padding: 4px 10px; font-size: 11px;">Clear Cache</button>
+    </div>
+  </div>
+
+  <header>
+    <p class="eyebrow">// Industrial Commerce · AI Product Intelligence</p>
+    <h1>SpecSense</h1>
+    <p class="tagline">Automated creation, enrichment, and validation of industrial product intelligence.
+      Backed by a <strong>Zero-API Fallback Engine</strong>, <strong>Multi-Key AI Cascade</strong>, and <strong>Persistent Disk Caching</strong> — never crashing on quota limits.
+    </p>
+  </header>
+
+  <nav>
+    <button class="tab-btn active" data-tab="single">Single Lookup</button>
+    <button class="tab-btn" data-tab="batch">Batch Mode</button>
+    <button class="tab-btn" data-tab="review">Review Queue</button>
+    <button class="tab-btn" data-tab="system">System & Cache</button>
+  </nav>
+
+  <main>
+
+    <!-- TAB 1: Single Lookup -->
+    <div class="panel active" id="panel-single">
+      <div class="card">
+        <h3>Look up a product</h3>
+        <p class="hint">Select an execution mode or choose an example below to test instant extraction:</p>
+
+        <!-- Mode Selector -->
+        <div class="mode-selector" id="s-mode-selector">
+          <div class="mode-pill active" data-mode="auto">🚀 Auto Cascade (AI + Fallback)</div>
+          <div class="mode-pill" data-mode="eco">⚡ Eco Mode (Fast / Low-Token)</div>
+          <div class="mode-pill" data-mode="offline">🔒 Zero-API Offline Mode ($0.00)</div>
+        </div>
+
+        <div class="row" style="margin-top:0; margin-bottom:18px;">
+          <button class="example-chip" data-example="skf">Try: SKF Bearing 6204-2RS1/C3</button>
+          <button class="example-chip" data-example="siemens">Try: Siemens PLC 6ES7214-1AG40-0XB0</button>
+          <button class="example-chip" data-example="diablo">Try: Diablo Sanding Belt DCB518ASTS06G</button>
+        </div>
+
+        <label>Part Number</label>
+        <input id="s-part" placeholder="e.g. 6204-2RS1/C3" />
+        <p class="field-hint">The manufacturer's exact part or model number.</p>
+
+        <label>Brand</label>
+        <input id="s-brand" placeholder="e.g. SKF" />
+        <p class="field-hint">Who makes it.</p>
+
+        <label>Short Description</label>
+        <input id="s-desc" placeholder="e.g. Deep groove ball bearing" />
+        <p class="field-hint">A few words is enough — we'll discover, extract, structure, and validate.</p>
+
+        <div class="row">
+          <button class="primary" id="s-run">Process Product</button>
+        </div>
+
+        <div class="pipeline" id="s-pipeline" style="display:none;">
+          <div class="track">
+            <div class="track-fill" id="s-track-fill"></div>
+          </div>
+          <div class="stage" data-stage="discover">
+            <div class="node">1</div>
+            <div class="label">Discover</div>
+          </div>
+          <div class="stage" data-stage="extract">
+            <div class="node">2</div>
+            <div class="label">Extract</div>
+          </div>
+          <div class="stage" data-stage="structure">
+            <div class="node">3</div>
+            <div class="label">Structure</div>
+          </div>
+          <div class="stage" data-stage="validate">
+            <div class="node">4</div>
+            <div class="label">Validate</div>
+          </div>
+        </div>
+
+        <p class="status-line" id="s-status"></p>
+      </div>
+      <div class="card" id="s-result" style="display:none;"></div>
+    </div>
+
+    <!-- TAB 2: Batch Mode -->
+    <div class="panel" id="panel-batch">
+      <div class="card">
+        <h3>Process catalog batches</h3>
+        <p class="hint">One product per line: <span class="mono">Part Number | Brand | Short Description</span> — runs with rate-limit queue protection and per-product error isolation.</p>
+        
+        <div class="mode-selector" id="b-mode-selector">
+          <div class="mode-pill active" data-mode="auto">🚀 Auto Cascade</div>
+          <div class="mode-pill" data-mode="eco">⚡ Eco Mode</div>
+          <div class="mode-pill" data-mode="offline">🔒 Zero-API Offline Mode (Fastest)</div>
+        </div>
+
+        <textarea id="b-input" rows="6" placeholder="6204-2RS1/C3 | SKF | Deep groove ball bearing
+6ES7 214-1AG40-0XB0 | Siemens | Compact CPU
+DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
+
+        <div class="row">
+          <button class="primary" id="b-run">Run Batch</button>
+          <button class="ghost" id="b-example">Fill example batch</button>
+          <button class="ghost" id="b-export">Export CSV (252-column spec)</button>
+          <button class="ghost" id="b-export-pdf">Export Catalog PDF</button>
+        </div>
+        <p class="hint" style="margin:10px 0 0;">Export matches the hackathon's exact 252-column delivery format or generates a compiled multi-page technical catalog PDF.</p>
+        <p class="status-line" id="b-status"></p>
+      </div>
+      <div class="card" id="b-summary" style="display:none;"></div>
+      <div id="b-results"></div>
+    </div>
+
+    <!-- TAB 3: Review Queue -->
+    <div class="panel" id="panel-review">
+      <div class="card">
+        <h3>Fields awaiting human review</h3>
+        <p class="hint">When confidence is below threshold or requires verification, items land here for one-click human resolution.</p>
+        <div class="row" style="margin-top:0;">
+          <button class="primary" id="r-refresh">Refresh Queue</button>
+        </div>
+        <p class="status-line" id="r-status"></p>
+      </div>
+      <div id="r-list"></div>
+    </div>
+
+    <!-- TAB 4: System & Cache Telemetry -->
+    <div class="panel" id="panel-system">
+      <div class="card">
+        <h3>System Architecture & Resilience Status</h3>
+        <p class="hint">SpecSense eliminates API exhaustion using a 5-tier cascade and persistent disk storage.</p>
+        <div id="system-details">Loading status...</div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    const API = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+
+    let currentSingleMode = "auto";
+    let currentBatchMode = "auto";
+
+    const EXAMPLES = {
+      skf: { part: "6204-2RS1/C3", brand: "SKF", desc: "Deep groove ball bearing" },
+      siemens: { part: "6ES7 214-1AG40-0XB0", brand: "Siemens", desc: "Compact CPU" },
+      diablo: { part: "DCB518ASTS06G", brand: "Freud Inc", desc: "Detail file sanding belt assorted pack" }
+    };
+
+    // Mode Selector Handler
+    function setupModePills(containerId, callback) {
+      document.querySelectorAll(`#${containerId} .mode-pill`).forEach(pill => {
+        pill.addEventListener("click", () => {
+          document.querySelectorAll(`#${containerId} .mode-pill`).forEach(p => p.classList.remove("active"));
+          pill.classList.add("active");
+          callback(pill.dataset.mode);
+        });
+      });
+    }
+
+    setupModePills("s-mode-selector", (mode) => { currentSingleMode = mode; });
+    setupModePills("b-mode-selector", (mode) => { currentBatchMode = mode; });
+
+    // Tabs
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+        if (btn.dataset.tab === "review") loadReviewQueue();
+        if (btn.dataset.tab === "system") loadSystemStatus();
+      });
+    });
+
+    document.querySelectorAll(".example-chip[data-example]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ex = EXAMPLES[btn.dataset.example];
+        document.getElementById("s-part").value = ex.part;
+        document.getElementById("s-brand").value = ex.brand;
+        document.getElementById("s-desc").value = ex.desc;
+      });
+    });
+
+    document.getElementById("b-example").addEventListener("click", () => {
+      document.getElementById("b-input").value =
+        "6204-2RS1/C3 | SKF | Deep groove ball bearing\n6ES7 214-1AG40-0XB0 | Siemens | Compact CPU\nDCB518ASTS06G | Freud Inc | Sanding Belt";
+    });
+
+    document.getElementById("b-export").addEventListener("click", () => {
+      window.location.href = `${API}/api/export/csv`;
+    });
+
+    document.getElementById("b-export-pdf").addEventListener("click", () => {
+      window.location.href = `${API}/api/export/pdf`;
+    });
+
+    document.getElementById("btn-clear-cache").addEventListener("click", async () => {
+      if (confirm("Clear persistent SQLite cache?")) {
+        await fetch(`${API}/api/cache/clear`, { method: "POST" });
+        loadSystemStatus();
+        alert("Cache cleared.");
+      }
+    });
+
+    // Telemetry updates
+    async function updateTelemetry() {
+      try {
+        const res = await fetch(`${API}/api/system/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.cache) {
+          document.getElementById("t-cache-count").textContent = data.cache.total_cached_products || 0;
+        }
+        if (data.rag_store) {
+          document.getElementById("t-rag-count").textContent = data.rag_store.chunks_indexed || 0;
+        }
+      } catch (e) {
+        console.warn("Telemetry ping failed:", e);
+      }
+    }
+    updateTelemetry();
+    setInterval(updateTelemetry, 15000);
+
+    function confidenceBadge(conf) {
+      if (conf >= 0.8) return `<span class="badge high" title="High confidence, verified">HIGH ${(conf * 100).toFixed(0)}%</span>`;
+      if (conf >= 0.5) return `<span class="badge med" title="Medium confidence, partial agreement">MED ${(conf * 100).toFixed(0)}%</span>`;
+      return `<span class="badge low" title="Low confidence, flagged for review">LOW ${(conf * 100).toFixed(0)}%</span>`;
+    }
+
+    function engineBadge(engine) {
+      if (engine === "cache") {
+        return `<span class="badge engine" style="background: rgba(79, 209, 165, 0.2); color: var(--green); border-color: var(--green);">⚡ Persistent Cache (0.00s)</span>`;
+      }
+      if (engine === "offline_rule_engine") {
+        return `<span class="badge engine" style="background: rgba(56, 189, 248, 0.2); color: var(--cyan); border-color: var(--cyan);">⚡ Zero-API Spec Engine</span>`;
+      }
+      if (engine === "gemini") {
+        return `<span class="badge engine">🤖 Gemini AI Model</span>`;
+      }
+      if (engine === "groq") {
+        return `<span class="badge engine" style="background: rgba(245, 166, 35, 0.2); color: var(--amber); border-color: var(--amber);">🤖 Groq Fast Fallback</span>`;
+      }
+      if (engine === "ollama") {
+        return `<span class="badge engine" style="background: rgba(167, 139, 250, 0.2); color: var(--purple); border-color: var(--purple);">🦙 Local Ollama</span>`;
+      }
+      return `<span class="badge engine">AI Cascade</span>`;
+    }
+
+    function formatSourceUrl(url) {
+      if (!url) return "";
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        const display = url.length > 55 ? url.slice(0, 55) + "..." : url;
+        return `<a class="source-link mono" href="${url}" target="_blank">↗ ${display}</a>`;
+      }
+      if (url.startsWith("dataset://")) {
+        const filename = url.replace("dataset://", "");
+        return `<span class="source-link mono" style="color: var(--steel);" title="Retrieved from reference dataset">📂 Dataset: ${filename}</span>`;
+      }
+      return `<span class="source-link mono" style="color: var(--steel);">${url}</span>`;
+    }
+
+    function renderProduct(p) {
+      let html = `<div class="product-title">
+        <div>${p.brand} <span class="brand">—</span> ${p.part_number}</div>
+        <div>${engineBadge(p.extraction_engine)}</div>
+      </div>`;
+
+      html += `<div class="field-row">
+        <div class="field-name">Category</div>
+        <div class="field-value">
+          ${p.category.value ? p.category.value : '<span class="empty-val">not found</span>'}
+          ${confidenceBadge(p.category.confidence)}
+          ${formatSourceUrl(p.category.source_url)}
+        </div>
+      </div>`;
+
+      html += `<div class="field-row">
+        <div class="field-name">Short Desc</div>
+        <div class="field-value">
+          ${p.short_desc.value || '<span class="empty-val">not found</span>'}
+          ${confidenceBadge(p.short_desc.confidence)}
+          ${formatSourceUrl(p.short_desc.source_url)}
+        </div>
+      </div>`;
+
+      html += `<div class="field-row">
+        <div class="field-name">Long Desc</div>
+        <div class="field-value">
+          ${p.long_desc.value || '<span class="empty-val">not found</span>'}
+          ${confidenceBadge(p.long_desc.confidence)}
+          ${formatSourceUrl(p.long_desc.source_url)}
+        </div>
+      </div>`;
+
+      if (p.attributes && p.attributes.length) {
+        p.attributes.forEach(attr => {
+          html += `<div class="field-row">
+            <div class="field-name">${attr.label}</div>
+            <div class="field-value">
+              <strong>${attr.value}</strong>${attr.uom ? ' ' + attr.uom : ''}
+              ${confidenceBadge(attr.confidence)}
+              ${attr.vocab_validated ? `<span class="badge high" style="font-size:9.5px;">✓ Vocab Checked</span>` : ""}
+              ${attr.agreeing_sources > 1 ? `<span class="badge med" style="font-size:9.5px;">${attr.agreeing_sources} sources</span>` : ""}
+              ${formatSourceUrl(attr.source_url)}
+            </div>
+          </div>`;
+        });
+      } else {
+        html += `<div class="field-row"><div class="field-name">Attributes</div><div class="field-value empty-val">none found</div></div>`;
+      }
+
+      html += `<div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center;">
+        <a class="ghost mono" href="${API}/api/export/pdf/single?part_number=${encodeURIComponent(p.part_number)}" target="_blank" style="padding: 8px 14px; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; border-color: var(--cyan); color: var(--paper);">
+          📄 Download PDF Datasheet
+        </a>
+      </div>`;
+
+      return html;
+    }
+
+    function resetPipeline(prefix) {
+      const pipeline = document.getElementById(`${prefix}-pipeline`);
+      if (!pipeline) return;
+      pipeline.style.display = "flex";
+      pipeline.querySelectorAll(".stage").forEach(s => s.classList.remove("active", "done"));
+      document.getElementById(`${prefix}-track-fill`).style.width = "0%";
+    }
+
+    async function animatePipeline(prefix) {
+      const stages = ["discover", "extract", "structure", "validate"];
+      const fill = document.getElementById(`${prefix}-track-fill`);
+      for (let i = 0; i < stages.length; i++) {
+        const el = document.querySelector(`#${prefix}-pipeline .stage[data-stage="${stages[i]}"]`);
+        if (el) el.classList.add("active");
+        await new Promise(r => setTimeout(r, 450));
+        if (el) {
+          el.classList.remove("active");
+          el.classList.add("done");
+        }
+        if (fill) fill.style.width = `${((i + 1) / stages.length) * 100}%`;
+      }
+    }
+
+    // Single Run
+    document.getElementById("s-run").addEventListener("click", async () => {
+      const part_number = document.getElementById("s-part").value.trim();
+      const brand = document.getElementById("s-brand").value.trim();
+      const short_description = document.getElementById("s-desc").value.trim();
+      const statusEl = document.getElementById("s-status");
+      const resultEl = document.getElementById("s-result");
+      const runBtn = document.getElementById("s-run");
+
+      if (!part_number || !brand || !short_description) {
+        statusEl.textContent = "Please enter part number, brand, and short description.";
+        statusEl.classList.add("error");
+        return;
+      }
+      statusEl.classList.remove("error");
+      runBtn.disabled = true;
+      resultEl.style.display = "none";
+      resetPipeline("s");
+      statusEl.textContent = `Running pipeline in '${currentSingleMode}' mode...`;
+
+      const animation = animatePipeline("s");
+
+      try {
+        const res = await fetch(`${API}/api/process`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ part_number, brand, short_description, mode: currentSingleMode })
+        });
+        await animation;
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || "Request failed");
+        }
+        const data = await res.json();
+        resultEl.innerHTML = renderProduct(data);
+        resultEl.style.display = "block";
+        statusEl.textContent = `Completed with ${data.attributes.length} attributes (${data.extraction_engine}).`;
+        updateTelemetry();
+      } catch (e) {
+        await animation;
+        statusEl.textContent = "Error: " + e.message;
+        statusEl.classList.add("error");
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    // Batch Run
+    document.getElementById("b-run").addEventListener("click", async () => {
+      const raw = document.getElementById("b-input").value.trim();
+      const statusEl = document.getElementById("b-status");
+      const summaryEl = document.getElementById("b-summary");
+      const resultsEl = document.getElementById("b-results");
+      const runBtn = document.getElementById("b-run");
+
+      if (!raw) {
+        statusEl.textContent = "Enter at least one product, or click 'Fill example batch'.";
+        statusEl.classList.add("error");
+        return;
+      }
+      statusEl.classList.remove("error");
+
+      const lines = raw.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+      const products = [];
+      for (const line of lines) {
+        if (line.includes("|")) {
+          const parts = line.split("|").map(s => s.trim());
+          if (parts[0]) products.push({ part_number: parts[0], brand: parts[1] || "Unknown", short_description: parts[2] || "Product " + parts[0], mode: currentBatchMode });
+        } else if (line.includes(",")) {
+          const parts = line.split(",").map(s => s.trim());
+          if (parts[0]) products.push({ part_number: parts[0], brand: parts[1] || "Unknown", short_description: parts[2] || "Product " + parts[0], mode: currentBatchMode });
+        } else {
+          products.push({ part_number: line, brand: "Unknown", short_description: "Product " + line, mode: currentBatchMode });
+        }
+      }
+
+      if (!products.length) return;
+
+      runBtn.disabled = true;
+      summaryEl.style.display = "none";
+      resultsEl.innerHTML = "";
+      statusEl.textContent = `Processing ${products.length} products in '${currentBatchMode}' mode...`;
+
+      const startTime = Date.now();
+      try {
+        const res = await fetch(`${API}/api/batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ products, mode: currentBatchMode })
+        });
+        if (!res.ok) throw new Error("Batch request failed");
+        const data = await res.json();
+
+        data.results.forEach(p => {
+          const div = document.createElement("div");
+          div.className = "card";
+          div.innerHTML = renderProduct(p);
+          resultsEl.appendChild(div);
+        });
+
+        const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
+        summaryEl.innerHTML = `<div class="batch-summary">
+          <div><div class="num">${products.length}</div><div class="lbl">Total</div></div>
+          <div><div class="num" style="color:var(--green)">${data.succeeded}</div><div class="lbl">Succeeded</div></div>
+          <div><div class="num" style="color:var(--coral)">${data.failed}</div><div class="lbl">Failed</div></div>
+          <div><div class="num">${elapsedSeconds}s</div><div class="lbl">Elapsed</div></div>
+        </div>`;
+        summaryEl.style.display = "block";
+        statusEl.textContent = "Batch completed successfully!";
+        updateTelemetry();
+      } catch (e) {
+        statusEl.textContent = "Error: " + e.message;
+        statusEl.classList.add("error");
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    // Review Queue
+    async function loadReviewQueue() {
+      const statusEl = document.getElementById("r-status");
+      const listEl = document.getElementById("r-list");
+      statusEl.textContent = "Loading flagged fields...";
+      try {
+        const res = await fetch(`${API}/api/review/queue`);
+        const data = await res.json();
+        if (!data.flagged_fields.length) {
+          listEl.innerHTML = `<div class="card empty-state">
+            <div class="icon">✓</div>
+            <p><strong>Review queue is empty!</strong></p>
+            <p>All processed products have high confidence scores or have already been approved.</p>
+          </div>`;
+          statusEl.textContent = "";
+          return;
+        }
+        listEl.innerHTML = "";
+        data.flagged_fields.forEach(f => {
+          const div = document.createElement("div");
+          div.className = "flagged-item";
+          div.innerHTML = `
+            <div class="top">
+              <span class="pn">${f.brand} — ${f.part_number}</span>
+              <span>${f.field_name} ${confidenceBadge(f.confidence)}</span>
+            </div>
+            <div class="current">Current value: ${f.current_value || '(none found)'}</div>
+            <input type="text" placeholder="Enter corrected value" class="correction-input" />
+            <div class="row" style="margin-top:0;">
+              <button class="primary small submit-btn" style="padding: 8px 14px; font-size: 12.5px;">Approve / Correct</button>
+            </div>
+          `;
+          div.querySelector(".submit-btn").addEventListener("click", async () => {
+            const val = div.querySelector(".correction-input").value.trim() || f.current_value;
+            await fetch(`${API}/api/review/submit`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ part_number: f.part_number, field_name: f.field_name, corrected_value: val })
+            });
+            loadReviewQueue();
+          });
+          listEl.appendChild(div);
+        });
+        statusEl.textContent = `${data.flagged_fields.length} field(s) awaiting review.`;
+      } catch (e) {
+        statusEl.textContent = "Error: " + e.message;
+        statusEl.classList.add("error");
+      }
+    }
+    document.getElementById("r-refresh").addEventListener("click", loadReviewQueue);
+
+    // System Telemetry
+    async function loadSystemStatus() {
+      const container = document.getElementById("system-details");
+      container.innerHTML = "Loading telemetry...";
+      try {
+        const res = await fetch(`${API}/api/system/status`);
+        const data = await res.json();
+        container.innerHTML = `
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 10px;">
+            <div style="background: var(--ink); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+              <h4 style="margin: 0 0 8px; color: var(--amber);">🤖 AI Providers Cascade</h4>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Gemini Pool:</strong> ${data.providers.gemini.configured ? 'Active (' + data.providers.gemini.key_count + ' keys)' : 'Not Configured'}</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Groq Fallback:</strong> ${data.providers.groq.configured ? 'Active (' + data.providers.groq.key_count + ' keys)' : 'Not Configured'}</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Local Ollama:</strong> ${data.providers.ollama.endpoint}</p>
+            </div>
+            <div style="background: var(--ink); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+              <h4 style="margin: 0 0 8px; color: var(--cyan);">⚡ Zero-API Spec Engine</h4>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Status:</strong> ${data.providers.offline_rule_engine.status.toUpperCase()}</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Capabilities:</strong> ${data.providers.offline_rule_engine.capabilities.join(', ')}</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Cost:</strong> ${data.providers.offline_rule_engine.api_cost}</p>
+            </div>
+            <div style="background: var(--ink); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+              <h4 style="margin: 0 0 8px; color: var(--green);">💾 Persistent SQLite Cache</h4>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Cached Products:</strong> ${data.cache.total_cached_products}</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Cache Hits:</strong> ${data.cache.cache_hits} (${data.cache.hit_rate_pct}%)</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Database:</strong> ${data.cache.db_path}</p>
+            </div>
+            <div style="background: var(--ink); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+              <h4 style="margin: 0 0 8px; color: var(--paper);">📚 Reference RAG & Vocab</h4>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>RAG Chunks Indexed:</strong> ${data.rag_store.chunks_indexed}</p>
+              <p style="font-size: 13px; margin: 4px 0;"><strong>Controlled Vocab:</strong> ${data.vocabulary.any_active ? 'Active' : 'Passthrough'}</p>
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        container.innerHTML = `<span style="color:var(--coral);">Failed to load system status: ${e.message}</span>`;
+      }
+    }
+  </script>
+
+</body>
+
+</html>
