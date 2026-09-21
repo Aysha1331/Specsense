@@ -322,7 +322,8 @@ def _clean_source_url(url: str | None) -> str | None:
     if not url:
         return None
     url_lower = url.lower()
-    if any(bad in url_lower for bad in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "deepl.com", "translate."]):
+    bad_domains = ["bing.com", "duckduckgo.com", "google.com", "deepl.com", "translate.", "apple.com", "itunes", "microsoft.com", "amazon.", "ebay.", "yahoo.com", "cnet.com", "spotify.com"]
+    if any(bad in url_lower for bad in bad_domains):
         return None
     return url
 

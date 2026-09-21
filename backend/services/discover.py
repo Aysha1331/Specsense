@@ -34,6 +34,11 @@ EXCLUDED_DOMAINS = [
     "digikey.", "mouser.", "newark.", "farnell.", "zoro.", "homedepot.",
     "lowes.", "wayfair.", "target.", "bestbuy.", "globalindustrial.",
     "thomasnet.", "indiamart.", "made-in-china.",
+    # Generic Tech, Media, Entertainment & App Stores
+    "apple.com", "itunes.apple.com", "apps.apple.com", "music.apple.com",
+    "microsoft.com", "bing.com", "msn.com", "google.com", "play.google.com",
+    "spotify.com", "netflix.com", "imdb.com", "yelp.com", "tripadvisor.com",
+    "cnet.com", "softonic.com", "download.cnet.com", "yahoo.com",
     # Translation services & dictionaries
     "deepl.com", "translate.google.", "bing.com/translator", "reverso.net",
     "linguee.", "yandex.com/translate", "systran.", "freetranslation.",
@@ -41,8 +46,7 @@ EXCLUDED_DOMAINS = [
     "merriam-webster.", "collinsdictionary.", "vocabulary.com", "wordreference.",
     # Social & generic media
     "facebook.com", "instagram.com", "twitter.com", "x.com", "youtube.com",
-    "pinterest.com", "play.google.com", "apps.apple.com", "apps.microsoft.com",
-    "reddit.com", "quora.com", "medium.com", "linkedin.com", "wikipedia.org",
+    "pinterest.com", "reddit.com", "quora.com", "medium.com", "linkedin.com", "wikipedia.org",
     "github.com", "gitlab.com", "stackoverflow.com",
 ]
 
@@ -51,7 +55,7 @@ def _is_excluded_source(url: str, brand: str) -> bool:
     url_lower = url.lower()
     
     # Filter out search engine tracking redirects
-    if any(k in url_lower for k in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "yahoo.com/r"]):
+    if any(k in url_lower for k in ["bing.com", "duckduckgo.com", "google.com/url", "yahoo.com", "apple.com", "itunes"]):
         return True
 
     # Filter out translation and utility services in path or query
@@ -86,6 +90,28 @@ def _is_excluded_source(url: str, brand: str) -> bool:
         marketplaces = ["amazon.", "ebay.", "walmart.", "aliexpress.", "alibaba."]
         return any(domain in url_lower for domain in marketplaces)
     return any(domain in url_lower for domain in EXCLUDED_DOMAINS)
+
+
+def is_relevant_product_source(url: str, brand: str = "", pn: str = "") -> bool:
+    """Verifies that a discovered source is actually an industrial product or manufacturer page."""
+    if not url:
+        return False
+    url_lower = url.lower()
+    if _is_excluded_source(url, brand):
+        return False
+        
+    brand_clean = (brand or "").lower().strip()
+    pn_clean = "".join(c for c in (pn or "") if c.isalnum()).lower()
+    
+    # Check if brand or part number is explicitly in the URL
+    if brand_clean and len(brand_clean) >= 3 and brand_clean in url_lower:
+        return True
+    if pn_clean and len(pn_clean) >= 4 and pn_clean in url_lower.replace("-", "").replace("_", ""):
+        return True
+        
+    # Check for technical industrial keywords
+    tech_keywords = ["/product", "/part", "datasheet", "catalog", "specification", "spec", ".pdf", "bearing", "sensor", "automation", "controller", "manual", "components"]
+    return any(kw in url_lower for kw in tech_keywords)
 
 
 def _guess_manufacturer_domain(brand: str) -> str | None:

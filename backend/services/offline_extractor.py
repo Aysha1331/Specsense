@@ -508,10 +508,17 @@ def extract_offline_product(product: ProductInput, sources: List[SourceHit]) -> 
     seen_labels = {}
     final_attributes: List[Attribute] = []
     primary_source_url = None
+    bad_domains = ["bing.com", "duckduckgo.com", "google.com", "deepl.com", "translate.", "apple.com", "itunes", "microsoft.com", "amazon.", "ebay.", "yahoo.com"]
     for s in usable_sources:
-        if s.url and not any(bad in s.url.lower() for bad in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "deepl.com", "translate."]):
-            primary_source_url = s.url
-            break
+        if s.url:
+            url_lower = s.url.lower()
+            if not any(bad in url_lower for bad in bad_domains):
+                brand_lower = (resolved_brand or "").lower().strip()
+                pn_norm = "".join(c for c in product.part_number if c.isalnum()).lower()
+                tech_kw = ["datasheet", "catalog", "specification", "product", ".pdf", "sensor", "bearing", "automation", "controller", "manual", "components"]
+                if (brand_lower and len(brand_lower) >= 3 and brand_lower in url_lower) or (pn_norm and len(pn_norm) >= 4 and pn_norm in url_lower.replace("-", "").replace("_", "")) or any(kw in url_lower for kw in tech_kw):
+                    primary_source_url = s.url
+                    break
 
     for label, val, uom in extracted_attrs:
         norm_label = "".join(ch for ch in label.lower() if ch.isalnum())
