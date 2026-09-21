@@ -138,7 +138,7 @@ def _call_gemini(user_prompt: str) -> dict:
             response = model.generate_content(
                 user_prompt,
                 generation_config={"temperature": 0, "max_output_tokens": 4096, "response_mime_type": "application/json"},
-                request_options={"timeout": 30.0}
+                request_options={"timeout": 6.0}
             )
             raw = response.text.strip().replace("```json", "").replace("```", "").strip()
             return _parse_json_loosely(raw)
@@ -170,7 +170,7 @@ def _call_groq(user_prompt: str) -> dict:
                 messages=[{"role": "user", "content": user_prompt}],
                 temperature=0,
                 max_tokens=4096,
-                timeout=30.0,
+                timeout=4.0,
                 extra_body=extra_body if "qwen" in m.lower() else {}
             )
             raw = response.choices[0].message.content.strip()
@@ -184,7 +184,7 @@ def _call_groq(user_prompt: str) -> dict:
 
 def _call_ollama(user_prompt: str) -> dict:
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=3.0) as client:
             resp = client.post(
                 OLLAMA_URL,
                 json={"model": OLLAMA_MODEL, "prompt": user_prompt, "stream": False, "format": "json"}

@@ -146,11 +146,11 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
 
 @app.post("/api/process", response_model=StructuredProduct)
 async def process_product(product: ProductInput):
-    """Runs the resilient pipeline for ONE product."""
+    """Runs the resilient pipeline for ONE product with 10s maximum timeout."""
     try:
-        return await _run_pipeline(product)
+        return await asyncio.wait_for(_run_pipeline(product), timeout=10.0)
     except Exception as e:
-        print(f"[process] fallback on uncaught error: {e}")
+        print(f"[process] fallback on timeout or error: {e}")
         # Zero-crash guarantee
         fallback_res = extract_offline_product(product, [])
         fallback_res.extraction_engine = "offline_rule_engine"

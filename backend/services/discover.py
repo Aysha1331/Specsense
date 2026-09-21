@@ -178,8 +178,8 @@ async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit
     all_results = []
     seen_urls = set()
     
-    # Always run the top 2 queries to combine results and get a diverse set of sources
-    queries_to_run = queries[:2] if len(queries) >= 2 else queries
+    # Always run the top 1 query first for fast response
+    queries_to_run = queries[:1]
     for query in queries_to_run:
         results = await _try_search(query, max_results, brand_clean)
         for r in results:
@@ -187,16 +187,13 @@ async def _web_search(product: ProductInput, max_results: int) -> list[SourceHit
                 seen_urls.add(r.url)
                 all_results.append(r)
                 
-    # If we have fewer than max_results, run subsequent queries
-    if len(all_results) < max_results:
-        for query in queries[2:]:
-            results = await _try_search(query, max_results - len(all_results), brand_clean)
-            for r in results:
-                if r.url not in seen_urls:
-                    seen_urls.add(r.url)
-                    all_results.append(r)
-            if len(all_results) >= max_results:
-                break
+    # If we have fewer than max_results, try one more query
+    if len(all_results) < max_results and len(queries) > 1:
+        results = await _try_search(queries[1], max_results - len(all_results), brand_clean)
+        for r in results:
+            if r.url not in seen_urls:
+                seen_urls.add(r.url)
+                all_results.append(r)
                 
     if not all_results:
         print(f"[discover] no results from any query variant for {product.brand} {product.part_number}")
@@ -222,32 +219,20 @@ def _clean_url(url: str) -> str:
 
 
 async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
-    # Always query for up to 10 results to get a larger candidate pool for ranking
-    search_limit = 10
+    search_limit = 6
     
-    # 1. Try DuckDuckGo search first (free, unlimited, no API key needed)
-    try:
-        print(f"[discover] attempting DuckDuckGo search for: '{query}'")
-        results = await _ddg_search(query, search_limit, brand)
-        if results:
-            return results
-    except Exception as e:
-        print(f"[discover] DuckDuckGo search failed: {e}")
-
-    # 2. Fallback to SerpApi if key is present
+    # 1. Fallback to SerpApi first if key is present (fastest & cleanest)
     if SERPAPI_KEY:
         try:
             print(f"[discover] attempting SerpAPI search for: '{query}'")
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with httpx.AsyncClient(timeout=4.0) as client:
                 resp = await client.get(
                     SERPAPI_URL,
                     params={"q": query, "api_key": SERPAPI_KEY, "num": search_limit},
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    if "error" in data:
-                        print(f"[discover] SerpAPI error: {data['error']}")
-                    else:
+                    if not "error" in data:
                         results = []
                         for item in data.get("organic_results", [])[:search_limit * 2]:
                             url = _clean_url(item.get("link", ""))
@@ -265,19 +250,24 @@ async def _try_search(query: str, max_results: int, brand: str) -> list[SourceHi
                                 break
                         if results:
                             return results
-                else:
-                    print(f"[discover] SerpAPI search returned status {resp.status_code}")
         except Exception as e:
             print(f"[discover] SerpAPI search fallback failed: {e}")
 
-    # 3. Fallback to Bing search (free, no API key needed, extremely robust)
+    # 2. Try DuckDuckGo search (fast timeout 2.0s)
     try:
-        print(f"[discover] attempting Bing search for: '{query}'")
+        results = await _ddg_search(query, search_limit, brand)
+        if results:
+            return results
+    except Exception:
+        pass
+
+    # 3. Fallback to Bing search (fast timeout 3.0s)
+    try:
         results = await _bing_search(query, search_limit, brand)
         if results:
             return results
-    except Exception as e:
-        print(f"[discover] Bing search failed: {e}")
+    except Exception:
+        pass
 
     return []
 
@@ -313,10 +303,9 @@ async def _bing_search(query: str, max_results: int, brand: str) -> list[SourceH
         "Accept-Language": "en-US,en;q=0.5",
     }
     
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=3.0) as client:
         resp = await client.get(url, params=params, headers=headers)
         if resp.status_code != 200:
-            print(f"[discover] Bing search returned status {resp.status_code}")
             return []
             
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -348,7 +337,6 @@ async def _bing_search(query: str, max_results: int, brand: str) -> list[SourceH
         return results
 
 
-
 async def _ddg_search(query: str, max_results: int, brand: str) -> list[SourceHit]:
     url = "https://html.duckduckgo.com/html/"
     params = {"q": query}
@@ -356,7 +344,7 @@ async def _ddg_search(query: str, max_results: int, brand: str) -> list[SourceHi
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
     
-    async with httpx.AsyncClient(timeout=8.0) as client:
+    async with httpx.AsyncClient(timeout=2.0) as client:
         resp = await client.get(url, params=params, headers=headers)
         if resp.status_code != 200:
             resp = await client.post(url, data=params, headers=headers)

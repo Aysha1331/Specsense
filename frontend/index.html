@@ -1051,8 +1051,16 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         });
         await animation;
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || "Request failed");
+          let errMsg = `Request failed (${res.status})`;
+          try {
+            const err = await res.json();
+            errMsg = err.detail || errMsg;
+          } catch (jsonErr) {
+            if (res.status === 504 || res.status === 502) {
+              errMsg = "Server is warming up or timed out. Please try again in 5 seconds.";
+            }
+          }
+          throw new Error(errMsg);
         }
         const data = await res.json();
         resultEl.innerHTML = renderProduct(data);
