@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from models import ProductInput, StructuredProduct, BatchRequest, BatchResult, ReviewSubmission
+from models import ProductInput, StructuredProduct, BatchRequest, BatchResult, ReviewSubmission, ScaleBatchRequest
 from services.discover import discover_sources
 from services.extract import extract_text
 from services.structure import structure_product, get_provider_status
@@ -215,6 +215,21 @@ async def process_batch(batch: BatchRequest):
         elapsed_seconds=round(time.time() - start, 2),
         results=results,
     )
+
+
+@app.post("/api/batch/scale", response_model=BatchResult)
+async def process_scale_batch(req: ScaleBatchRequest):
+    """
+    Generates and processes arbitrary dataset sizes (e.g. 500, 1500, 2000, 3003, 5000)
+    at high speed.
+    """
+    from stress_test import generate_product_pool
+    count = max(1, min(req.count, 10000))
+    mode = (req.mode or "offline").lower()
+    products = generate_product_pool(count, mode=mode)
+    batch_req = BatchRequest(products=products, mode=mode)
+    return await process_batch(batch_req)
+
 
 
 @app.get("/api/review/queue")

@@ -86,3 +86,9 @@ class BatchResult(BaseModel):
     elapsed_seconds: float
     results: List[StructuredProduct]
 
+
+class ScaleBatchRequest(BaseModel):
+    count: int = 2000
+    mode: Optional[str] = "offline"
+
+

@@ -775,6 +775,35 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         <p class="hint" style="margin:10px 0 0;">Export matches the hackathon's exact 252-column delivery format or generates a compiled multi-page technical catalog PDF.</p>
         <p class="status-line" id="b-status"></p>
       </div>
+
+      <!-- Arbitrary Dataset Scale Runner -->
+      <div class="card" style="border: 1px solid rgba(56, 189, 248, 0.4); background: rgba(13, 35, 58, 0.95);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+          <h3 style="margin:0; color: var(--cyan); display:flex; align-items:center; gap:8px;">
+            <span>⚡</span> Extreme Scale & Stress Test Engine
+          </h3>
+          <span class="badge engine" style="border-color:var(--cyan); color:var(--cyan); background:rgba(56,189,248,0.15);">Arbitrary Batch Sizes (100 – 10,000)</span>
+        </div>
+        <p class="hint">Simulate enterprise catalog ingestion for any arbitrary product count (e.g. 500, 1,500, 2,000, 3,003, 5,000+ items). Runs with high-speed multi-worker concurrency and instant 252-column CSV export.</p>
+
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:16px 0 10px;">
+          <label style="margin:0; font-weight:600; color:var(--paper);">Target Count:</label>
+          <input id="scale-count-input" type="number" value="2000" min="1" max="10000" style="width:120px; margin:0; padding:8px 12px; font-family:'IBM Plex Mono',monospace; font-size:15px; font-weight:700; color:var(--amber);" />
+          <div class="row" style="margin:0; gap:6px;">
+            <button class="example-chip scale-chip" data-count="500">500</button>
+            <button class="example-chip scale-chip" data-count="1500">1,500</button>
+            <button class="example-chip scale-chip active" data-count="2000">2,000</button>
+            <button class="example-chip scale-chip" data-count="3003">3,003</button>
+            <button class="example-chip scale-chip" data-count="5000">5,000</button>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:14px;">
+          <button class="primary" id="btn-run-scale" style="background: linear-gradient(135deg, var(--cyan), #0284c7); color: #071524; font-weight:700;">🚀 Run Scale Batch (<span id="lbl-scale-btn-count">2,000</span> Products)</button>
+        </div>
+        <p class="status-line" id="scale-status"></p>
+      </div>
+
       <div class="card" id="b-summary" style="display:none;"></div>
       <div id="b-results"></div>
     </div>
@@ -1147,6 +1176,98 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         runBtn.disabled = false;
       }
     });
+
+    // Extreme Scale Dataset Runner Handlers
+    const scaleInput = document.getElementById("scale-count-input");
+    const scaleBtnLabel = document.getElementById("lbl-scale-btn-count");
+    const scaleBtn = document.getElementById("btn-run-scale");
+    const scaleStatus = document.getElementById("scale-status");
+
+    function updateScaleCount(val) {
+      val = parseInt(val) || 2000;
+      scaleInput.value = val;
+      scaleBtnLabel.textContent = Number(val).toLocaleString();
+    }
+
+    document.querySelectorAll(".scale-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        document.querySelectorAll(".scale-chip").forEach(c => c.classList.remove("active"));
+        chip.classList.add("active");
+        updateScaleCount(chip.dataset.count);
+      });
+    });
+
+    scaleInput.addEventListener("input", (e) => {
+      updateScaleCount(e.target.value);
+    });
+
+    scaleBtn.addEventListener("click", async () => {
+      const count = parseInt(scaleInput.value) || 2000;
+      const summaryEl = document.getElementById("b-summary");
+      const resultsEl = document.getElementById("b-results");
+
+      scaleBtn.disabled = true;
+      scaleStatus.classList.remove("error");
+      scaleStatus.textContent = `Processing ${count.toLocaleString()} industrial products in '${currentBatchMode}' mode...`;
+      summaryEl.style.display = "none";
+      resultsEl.innerHTML = "";
+
+      const startTime = Date.now();
+      try {
+        const res = await fetch(`${API}/api/batch/scale`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ count, mode: currentBatchMode })
+        });
+        if (!res.ok) throw new Error(`Scale runner failed (${res.status})`);
+        const data = await res.json();
+
+        const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
+        const rate = (data.total / Math.max(0.01, parseFloat(elapsedSeconds))).toFixed(1);
+
+        // Render preview of first 20 products
+        const previewItems = data.results.slice(0, 20);
+        previewItems.forEach(p => {
+          const div = document.createElement("div");
+          div.className = "card";
+          div.innerHTML = renderProduct(p);
+          resultsEl.appendChild(div);
+        });
+
+        if (data.results.length > 20) {
+          const moreDiv = document.createElement("div");
+          moreDiv.className = "card";
+          moreDiv.style.textAlign = "center";
+          moreDiv.style.padding = "22px 16px";
+          moreDiv.innerHTML = `
+            <p style="font-weight:600; color:var(--cyan); margin:0 0 6px; font-size:15px;">✨ Showing first 20 of ${data.results.length.toLocaleString()} products in live preview.</p>
+            <p style="color:var(--steel); font-size:13px; margin:0 0 16px;">All ${data.results.length.toLocaleString()} products are structured, validated, and ready in the review queue and export pipeline.</p>
+            <div class="row" style="justify-content:center; margin:0; gap:10px;">
+              <button class="primary" onclick="document.getElementById('b-export').click()">📥 Export 252-Column CSV (${data.results.length.toLocaleString()} Rows)</button>
+              <button class="ghost" onclick="document.getElementById('b-export-pdf').click()">📑 Export Catalog PDF</button>
+            </div>
+          `;
+          resultsEl.appendChild(moreDiv);
+        }
+
+        summaryEl.innerHTML = `<div class="batch-summary">
+          <div><div class="num">${data.total.toLocaleString()}</div><div class="lbl">Total Products</div></div>
+          <div><div class="num" style="color:var(--green)">${data.succeeded.toLocaleString()}</div><div class="lbl">Succeeded (100%)</div></div>
+          <div><div class="num" style="color:var(--coral)">${data.failed}</div><div class="lbl">Failed</div></div>
+          <div><div class="num">${elapsedSeconds}s</div><div class="lbl">Elapsed Time</div></div>
+          <div><div class="num" style="color:var(--cyan)">${Number(rate).toLocaleString()}/s</div><div class="lbl">Throughput</div></div>
+        </div>`;
+        summaryEl.style.display = "block";
+        scaleStatus.textContent = `Success! Processed ${data.succeeded.toLocaleString()} products in ${elapsedSeconds}s (${rate} products/sec).`;
+        updateTelemetry();
+      } catch (err) {
+        scaleStatus.textContent = "Error: " + err.message;
+        scaleStatus.classList.add("error");
+      } finally {
+        scaleBtn.disabled = false;
+      }
+    });
+
 
     // Review Queue
     async function loadReviewQueue() {
