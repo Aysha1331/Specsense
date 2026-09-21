@@ -74,13 +74,39 @@ def generate_product_pool(count: int, mode: str = "offline") -> list[ProductInpu
     return products_to_process
 
 
-async def run_stress_test(target_count: int = 2000, mode: str = "offline", output_file: str = None):
+def load_products_from_csv(csv_path: str, mode: str = "offline") -> list[ProductInput]:
+    products = []
+    with open(csv_path, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Flexible column name matching
+            pn = (row.get("Mfg_Part_Num") or row.get("part_number") or row.get("Part_Number") or 
+                  row.get("PartNumber") or row.get("SKU") or row.get("Model") or row.get("Item") or "").strip()
+            desc = (row.get("Part_Desc") or row.get("short_description") or row.get("Description") or 
+                    row.get("Desc") or row.get("Product_Name") or "").strip()
+            raw_brand = (row.get("E1_Brand") or row.get("brand") or row.get("Brand") or 
+                         row.get("Manufacturer") or row.get("Part_Manuf") or "")
+            brand = clean_brand(raw_brand, row.get("Part_Manuf", ""))
+            if pn:
+                products.append(ProductInput(part_number=pn, brand=brand, short_description=desc or pn, mode=mode))
+    return products
+
+
+async def run_stress_test(target_count: int = 2000, mode: str = "offline", output_file: str = None, input_file: str = None):
     print("=" * 68)
-    print(f"  SPECSENSE SCALE RUNNER: {target_count:,} PRODUCTS IN '{mode.upper()}' MODE")
+    if input_file:
+        print(f"  SPECSENSE DATASET RUNNER: '{input_file}' IN '{mode.upper()}' MODE")
+    else:
+        print(f"  SPECSENSE SCALE RUNNER: {target_count:,} PRODUCTS IN '{mode.upper()}' MODE")
     print("=" * 68)
 
     # 1. Prepare products
-    products = generate_product_pool(target_count, mode=mode)
+    if input_file and os.path.exists(input_file):
+        products = load_products_from_csv(input_file, mode=mode)
+        target_count = len(products)
+    else:
+        products = generate_product_pool(target_count, mode=mode)
+
     print(f"\n[1/3] Prepared {len(products):,} industrial products across categories:")
     print("      * Deep Groove & Roller Bearings (SKF, Timken, NSK)")
     print("      * PLCs, Automation & I/O Modules (Siemens, Allen-Bradley)")
@@ -137,14 +163,16 @@ async def run_stress_test(target_count: int = 2000, mode: str = "offline", outpu
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpecSense Extreme Scale Dataset Runner")
+    parser = argparse.ArgumentParser(description="SpecSense Extreme Scale & Custom Dataset Runner")
     parser.add_argument("--count", "-c", type=int, default=2000, help="Number of products to run (e.g. 100, 1500, 2000, 3003, 5000)")
+    parser.add_argument("--input", "-i", type=str, default=None, help="Path to a custom evaluator CSV file")
     parser.add_argument("--mode", "-m", type=str, default="offline", choices=["offline", "auto", "eco"], help="Extraction mode (offline for instant 0-API, auto for AI)")
     parser.add_argument("--output", "-o", type=str, default=None, help="Output CSV file path")
 
     args = parser.parse_args()
-    asyncio.run(run_stress_test(target_count=args.count, mode=args.mode, output_file=args.output))
+    asyncio.run(run_stress_test(target_count=args.count, mode=args.mode, output_file=args.output, input_file=args.input))
 
 
 if __name__ == "__main__":
     main()
+
