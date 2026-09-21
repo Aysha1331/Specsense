@@ -305,6 +305,24 @@ def _find_or_create_product(part_number: str) -> StructuredProduct:
     return p_generated
 
 
+@app.get("/api/export/pdf")
+def export_catalog_pdf():
+    """Generates and downloads a compiled multi-page catalog PDF for all processed products."""
+    products = review_store.get_all_products()
+    if not products:
+        products = list(cache._memory_cache.values())
+    if not products:
+        sample = _find_or_create_product("6204-2RS1/C3")
+        products = [sample]
+        
+    pdf_bytes = generate_catalog_pdf(products)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=specsense_catalog.pdf"},
+    )
+
+
 @app.get("/api/export/pdf/single")
 def export_single_pdf_query(part_number: str):
     """Generates and downloads a PDF datasheet using query parameter (safe for slashes)."""
@@ -321,6 +339,8 @@ def export_single_pdf_query(part_number: str):
 @app.get("/api/export/pdf/{part_number:path}")
 def export_single_pdf_path(part_number: str):
     """Generates and downloads a PDF datasheet using path parameter."""
+    if not part_number or part_number.strip() == "":
+        return export_catalog_pdf()
     product = _find_or_create_product(part_number)
     pdf_bytes = generate_product_pdf(product)
     filename = f"datasheet_{product.part_number.replace(' ', '_').replace('/', '_')}.pdf"
@@ -330,24 +350,6 @@ def export_single_pdf_path(part_number: str):
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
-
-@app.get("/api/export/pdf")
-def export_catalog_pdf():
-    """Generates and downloads a compiled multi-page catalog PDF for all processed products."""
-    products = review_store.get_all_products()
-    if not products:
-        products = list(cache._memory_cache.values())
-    if not products:
-        # Default sample if nothing processed yet
-        sample = _find_or_create_product("6204-2RS1/C3")
-        products = [sample]
-        
-    pdf_bytes = generate_catalog_pdf(products)
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=specsense_catalog.pdf"},
-    )
 
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
