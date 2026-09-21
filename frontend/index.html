@@ -1176,7 +1176,7 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
       statusEl.textContent = `Processing ${products.length.toLocaleString()} products in '${currentBatchMode}' mode...`;
 
       const startTime = Date.now();
-      const chunkSize = currentBatchMode === "offline" ? 250 : 25;
+      const chunkSize = currentBatchMode === "offline" ? 500 : 15;
       const allResults = [];
       let totalFailed = 0;
 
@@ -1184,9 +1184,11 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         for (let i = 0; i < products.length; i += chunkSize) {
           const chunk = products.slice(i, i + chunkSize);
           const totalChunks = Math.ceil(products.length / chunkSize);
+          const currentElapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          const currentSpeed = (i / Math.max(0.1, parseFloat(currentElapsed))).toFixed(1);
           
           if (totalChunks > 1) {
-            statusEl.textContent = `Processing items ${(i + 1).toLocaleString()}–${Math.min(i + chunkSize, products.length).toLocaleString()} of ${products.length.toLocaleString()} (${Math.round((i / products.length) * 100)}%)...`;
+            statusEl.textContent = `⚡ Processing items ${(i + 1).toLocaleString()}–${Math.min(i + chunkSize, products.length).toLocaleString()} of ${products.length.toLocaleString()} (${Math.round((i / products.length) * 100)}%) · Speed: ${currentSpeed} items/s · Elapsed: ${currentElapsed}s...`;
           }
 
           const res = await fetch(`${API}/api/batch`, {

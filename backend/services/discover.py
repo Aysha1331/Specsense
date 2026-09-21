@@ -151,7 +151,7 @@ async def _ddg_search(query: str, pn: str, brand: str, max_results: int) -> list
     url = "https://html.duckduckgo.com/html/"
     hits = []
     try:
-        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=2.0, follow_redirects=True) as client:
             resp = await client.post(url, data={"q": query}, headers=BROWSER_HEADERS)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -173,7 +173,7 @@ async def _ddg_search(query: str, pn: str, brand: str, max_results: int) -> list
                                 if len(hits) >= max_results:
                                     break
     except Exception as e:
-        print(f"[discover] DDG search error: {e}")
+        pass
     return hits
 
 
@@ -182,7 +182,7 @@ async def _bing_search(query: str, pn: str, brand: str, max_results: int) -> lis
     url = "https://www.bing.com/search"
     hits = []
     try:
-        async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=2.0, follow_redirects=True) as client:
             resp = await client.get(url, params={"q": query}, headers=BROWSER_HEADERS)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -200,7 +200,7 @@ async def _bing_search(query: str, pn: str, brand: str, max_results: int) -> lis
                                 if len(hits) >= max_results:
                                     break
     except Exception as e:
-        print(f"[discover] Bing search error: {e}")
+        pass
     return hits
 
 
@@ -210,7 +210,7 @@ async def _wiki_search(pn: str, brand: str, max_results: int = 1) -> list[Source
     query = f"{brand} {pn}".strip()
     wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={quote(query)}&utf8=&format=json"
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             resp = await client.get(wiki_url, headers={"User-Agent": "SpecSense/1.0 (contact: info@specsense.io)"})
             if resp.status_code == 200:
                 data = resp.json()
@@ -221,7 +221,7 @@ async def _wiki_search(pn: str, brand: str, max_results: int = 1) -> list[Source
                     if is_hit_relevant(title, snippet, page_url, pn, brand):
                         hits.append(SourceHit(url=page_url, title=title, snippet=snippet, origin="web"))
     except Exception as e:
-        print(f"[discover] Wiki search error: {e}")
+        pass
     return hits
 
 

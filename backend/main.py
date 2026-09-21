@@ -231,17 +231,16 @@ async def process_batch(batch: BatchRequest):
             results=results,
         )
 
-    # For online AI mode, use rate-limiting semaphore
-    concurrency = 4
+    # For online AI mode, use high-concurrency semaphore
+    concurrency = 16
     sem = asyncio.Semaphore(concurrency)
     
     async def sem_pipeline(p: ProductInput):
         p.mode = mode
         async with sem:
             try:
-                return await asyncio.wait_for(_run_pipeline(p), timeout=15.0)
+                return await asyncio.wait_for(_run_pipeline(p), timeout=8.0)
             except Exception as e:
-                print(f"[batch] item fallback for {p.part_number}: {e}")
                 fb = extract_offline_product(p, [])
                 fb.extraction_engine = "offline_rule_engine"
                 review_store.save_product(fb)

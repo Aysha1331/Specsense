@@ -49,7 +49,7 @@ async def extract_text(source: SourceHit) -> SourceHit:
 
     try:
         async with httpx.AsyncClient(
-            timeout=8.0, follow_redirects=True, headers=BROWSER_HEADERS
+            timeout=3.0, follow_redirects=True, headers=BROWSER_HEADERS
         ) as client:
             resp = await client.get(source.url)
             if resp.status_code == 200:
