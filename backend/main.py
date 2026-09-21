@@ -25,7 +25,7 @@ from services.extract import extract_text
 from services.structure import structure_product, get_provider_status
 from services.rag import rag_store
 from services import review_store, cache, export as export_service, vocabulary
-from services.offline_extractor import extract_offline_product
+from services.offline_extractor import extract_offline_product, _resolve_product_media
 
 app = FastAPI(title="SpecSense API", description="AI Product Intelligence for Industrial Commerce")
 
@@ -110,6 +110,9 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
     # 0. Check Persistent Cache First (only accept if it has populated attributes)
     cached = cache.get(product.part_number, product.brand)
     if cached and cached.attributes and len(cached.attributes) > 0:
+        if not getattr(cached, "image_url", None) or not getattr(cached, "cad_url", None):
+            cached.image_url, cached.cad_url = _resolve_product_media(cached.category.value or "", cached.part_number, cached.brand)
+            cache.set(cached.part_number, cached.brand, cached)
         print(f"[cache] hit for {product.brand} {product.part_number} -- 0 API calls made")
         review_store.save_product(cached)
         return cached
@@ -296,16 +299,22 @@ def _find_or_create_product(part_number: str) -> StructuredProduct:
     # 1. Check review store
     p = review_store.get_product(part_number)
     if p and p.attributes and len(p.attributes) > 0:
+        if not getattr(p, "image_url", None) or not getattr(p, "cad_url", None):
+            p.image_url, p.cad_url = _resolve_product_media(p.category.value or "", p.part_number, p.brand)
         return p
     for item in review_store.get_all_products():
         if "".join(c for c in item.part_number if c.isalnum()).lower() == pn_norm:
             if item.attributes and len(item.attributes) > 0:
+                if not getattr(item, "image_url", None) or not getattr(item, "cad_url", None):
+                    item.image_url, item.cad_url = _resolve_product_media(item.category.value or "", item.part_number, item.brand)
                 return item
 
     # 2. Check cache
     for item in cache._memory_cache.values():
         if "".join(c for c in item.part_number if c.isalnum()).lower() == pn_norm:
             if item.attributes and len(item.attributes) > 0:
+                if not getattr(item, "image_url", None) or not getattr(item, "cad_url", None):
+                    item.image_url, item.cad_url = _resolve_product_media(item.category.value or "", item.part_number, item.brand)
                 return item
 
     # 3. If not found or empty, generate on-demand using zero-API offline spec engine
