@@ -22,6 +22,7 @@ def safe_text(s: str | None, max_len: int = None) -> str:
     if s is None:
         return ""
     text = str(s).strip()
+    text = text.replace("°C", " deg C").replace("°F", " deg F").replace("°", " deg ")
     if max_len and len(text) > max_len:
         text = text[:max_len] + "..."
     return html.escape(text)
