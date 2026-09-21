@@ -760,8 +760,8 @@
         <p class="hint">One product per line: <span class="mono">Part Number | Brand | Short Description</span> — runs with rate-limit queue protection and per-product error isolation.</p>
         
         <div class="mode-selector" id="b-mode-selector">
-          <div class="mode-pill active" data-mode="auto">🚀 Live Web Search & AI Cascade</div>
-          <div class="mode-pill" data-mode="offline">⚡ Zero-API Offline Mode (Instant)</div>
+          <div class="mode-pill active offline" data-mode="offline">⚡ Zero-API Offline Engine (Instant · 500+ items/s)</div>
+          <div class="mode-pill" data-mode="auto">🚀 Live Web Search & AI Cascade</div>
           <div class="mode-pill" data-mode="eco">🌱 Eco Mode</div>
         </div>
 
@@ -815,7 +815,7 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
       : "";
 
     let currentSingleMode = "auto";
-    let currentBatchMode = "auto";
+    let currentBatchMode = "offline";
 
     const EXAMPLES = {
       skf: { part: "6204-2RS1/C3", brand: "SKF", desc: "Deep groove ball bearing" },
