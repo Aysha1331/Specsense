@@ -1175,32 +1175,6 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
           body: JSON.stringify({ products, mode: currentBatchMode })
         });
         if (!res.ok) throw new Error("Batch request failed");
-        const data = await res.json();
-
-        const previewItems = data.results.slice(0, 20);
-        previewItems.forEach(p => {
-          const div = document.createElement("div");
-          div.className = "card";
-          div.innerHTML = renderProduct(p);
-          resultsEl.appendChild(div);
-        });
-
-        if (data.results.length > 20) {
-          const moreDiv = document.createElement("div");
-          moreDiv.className = "card";
-          moreDiv.style.textAlign = "center";
-          moreDiv.style.padding = "20px 16px";
-          moreDiv.innerHTML = `
-            <p style="font-weight:600; color:var(--cyan); margin:0 0 6px; font-size:15px;">✨ Showing first 20 of ${data.results.length.toLocaleString()} products in preview.</p>
-            <p style="color:var(--steel); font-size:13px; margin:0 0 16px;">All ${data.results.length.toLocaleString()} products are structured, verified, and saved to the catalog store.</p>
-            <div class="row" style="justify-content:center; margin:0; gap:10px;">
-              <button class="primary" onclick="document.getElementById('b-export').click()">📥 Export 252-Column CSV (${data.results.length.toLocaleString()} Rows)</button>
-              <button class="ghost" onclick="document.getElementById('b-export-pdf').click()">📑 Export Catalog PDF</button>
-            </div>
-          `;
-          resultsEl.appendChild(moreDiv);
-        }
-
         const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
         const rate = (data.total / Math.max(0.01, parseFloat(elapsedSeconds))).toFixed(1);
 
@@ -1214,6 +1188,11 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         summaryEl.style.display = "block";
         statusEl.textContent = `Batch completed: ${data.succeeded.toLocaleString()} products processed in ${elapsedSeconds}s (${rate} items/sec)!`;
         updateTelemetry();
+
+        // Display results with flexible Show All & Load More controls
+        currentBatchProducts = data.results || [];
+        currentBatchLimit = currentBatchProducts.length <= 50 ? currentBatchProducts.length : 50;
+        renderBatchCards();
       } catch (e) {
         statusEl.textContent = "Error: " + e.message;
         statusEl.classList.add("error");
@@ -1221,6 +1200,92 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         runBtn.disabled = false;
       }
     });
+
+    let currentBatchProducts = [];
+    let currentBatchLimit = 50;
+
+    function renderBatchCards() {
+      const resultsEl = document.getElementById("b-results");
+      resultsEl.innerHTML = "";
+      if (!currentBatchProducts.length) return;
+
+      const showing = Math.min(currentBatchLimit, currentBatchProducts.length);
+      const total = currentBatchProducts.length;
+
+      // Top control bar
+      const topBar = document.createElement("div");
+      topBar.style.display = "flex";
+      topBar.style.justifyContent = "space-between";
+      topBar.style.alignItems = "center";
+      topBar.style.flexWrap = "wrap";
+      topBar.style.gap = "10px";
+      topBar.style.margin = "16px 0 12px";
+
+      topBar.innerHTML = `
+        <div class="mono" style="font-size:13px; color:var(--steel);">
+          Showing <strong style="color:var(--paper);">${showing.toLocaleString()}</strong> of <strong style="color:var(--paper);">${total.toLocaleString()}</strong> products
+        </div>
+        <div class="row" style="margin:0; gap:8px;">
+          ${showing < total ? `<button class="ghost" id="btn-load-50-top" style="padding:6px 12px; font-size:12px;">+ Load Next 50</button>` : ''}
+          ${showing < total ? `<button class="primary" id="btn-show-all-top" style="padding:6px 12px; font-size:12px;">Show All (${total.toLocaleString()})</button>` : ''}
+        </div>
+      `;
+      resultsEl.appendChild(topBar);
+
+      if (topBar.querySelector("#btn-load-50-top")) {
+        topBar.querySelector("#btn-load-50-top").onclick = () => {
+          currentBatchLimit += 50;
+          renderBatchCards();
+        };
+      }
+      if (topBar.querySelector("#btn-show-all-top")) {
+        topBar.querySelector("#btn-show-all-top").onclick = () => {
+          currentBatchLimit = total;
+          renderBatchCards();
+        };
+      }
+
+      // Render product cards
+      const items = currentBatchProducts.slice(0, currentBatchLimit);
+      items.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = renderProduct(p);
+        resultsEl.appendChild(div);
+      });
+
+      // Bottom pagination / export bar
+      if (showing < total) {
+        const bottomBar = document.createElement("div");
+        bottomBar.className = "card";
+        bottomBar.style.textAlign = "center";
+        bottomBar.style.padding = "20px 16px";
+        bottomBar.innerHTML = `
+          <p style="font-weight:600; color:var(--cyan); margin:0 0 6px; font-size:15px;">
+            Showing ${showing.toLocaleString()} of ${total.toLocaleString()} products.
+          </p>
+          <p style="color:var(--steel); font-size:13px; margin:0 0 14px;">
+            You can load more cards directly in the browser or export the full verified catalog.
+          </p>
+          <div class="row" style="justify-content:center; margin:0; gap:10px;">
+            <button class="ghost" id="btn-load-50-bot">+ Load Next 50 Products</button>
+            <button class="primary" id="btn-show-all-bot">Show All (${total.toLocaleString()} Products)</button>
+            <button class="ghost" onclick="document.getElementById('b-export').click()">📥 Export 252-Column CSV</button>
+          </div>
+        `;
+        resultsEl.appendChild(bottomBar);
+
+        bottomBar.querySelector("#btn-load-50-bot").onclick = () => {
+          currentBatchLimit += 50;
+          renderBatchCards();
+        };
+        bottomBar.querySelector("#btn-show-all-bot").onclick = () => {
+          currentBatchLimit = total;
+          renderBatchCards();
+        };
+      }
+    }
+
 
     // Review Queue
     async function loadReviewQueue() {
