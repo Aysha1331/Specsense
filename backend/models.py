@@ -65,6 +65,8 @@ class StructuredProduct(BaseModel):
     long_desc: FieldValue         # maps to LONG_DESC1 / RETAIL_DESC / MARKETING_DESCRIPTION
     attributes: List[Attribute] = Field(default_factory=list)  # maps to ATTRIBUTE_* columns
     sources_used: List[str] = Field(default_factory=list)      # maps to Ref URL 1-5
+    image_url: Optional[str] = None                            # High-resolution product / schematic image URL
+    cad_url: Optional[str] = None                              # 2D/3D CAD drawing / schematic URL
     extraction_engine: Optional[str] = "ai"  # "gemini" | "groq" | "ollama" | "offline_rule_engine" | "cache"
 
 
