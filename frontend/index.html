@@ -1191,20 +1191,51 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
             statusEl.textContent = `⚡ Processing items ${(i + 1).toLocaleString()}–${Math.min(i + chunkSize, products.length).toLocaleString()} of ${products.length.toLocaleString()} (${Math.round((i / products.length) * 100)}%) · Speed: ${currentSpeed} items/s · Elapsed: ${currentElapsed}s...`;
           }
 
-          const res = await fetch(`${API}/api/batch`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ products: chunk, mode: currentBatchMode })
-          });
+          let res;
+          let rawText = "";
+          let success = false;
 
-          const rawText = await res.text();
-          if (!res.ok) {
-            let errDetail = `Server returned status ${res.status}`;
+          try {
+            res = await fetch(`${API}/api/batch`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ products: chunk, mode: currentBatchMode })
+            });
+            rawText = await res.text();
+            if (res.ok && !rawText.trim().startsWith("<")) {
+              success = true;
+            }
+          } catch (fetchErr) {
+            console.warn("Primary batch request error, switching to instant offline fallback:", fetchErr);
+          }
+
+          // Auto-fallback to offline engine if primary request timed out or returned HTML (e.g. Render 504)
+          if (!success) {
+            try {
+              const fallbackRes = await fetch(`${API}/api/batch`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ products: chunk, mode: "offline" })
+              });
+              rawText = await fallbackRes.text();
+              if (fallbackRes.ok && !rawText.trim().startsWith("<")) {
+                res = fallbackRes;
+                success = true;
+              }
+            } catch (fallbackErr) {
+              console.error("Batch offline fallback failed:", fallbackErr);
+            }
+          }
+
+          if (!success) {
+            let errDetail = "Batch processing request timed out on the host gateway.";
             try {
               const errJson = JSON.parse(rawText);
               errDetail = errJson.detail || (typeof errJson === "string" ? errJson : JSON.stringify(errJson));
             } catch (_) {
-              if (rawText) errDetail = rawText.slice(0, 150);
+              if (rawText && !rawText.trim().startsWith("<")) {
+                errDetail = rawText.slice(0, 150);
+              }
             }
             throw new Error(errDetail);
           }
