@@ -107,9 +107,9 @@ def clear_cache():
 
 
 async def _run_pipeline(product: ProductInput) -> StructuredProduct:
-    # 0. Check Persistent Cache First
+    # 0. Check Persistent Cache First (only accept if it has populated attributes)
     cached = cache.get(product.part_number, product.brand)
-    if cached:
+    if cached and cached.attributes and len(cached.attributes) > 0:
         print(f"[cache] hit for {product.brand} {product.part_number} -- 0 API calls made")
         review_store.save_product(cached)
         return cached
@@ -295,22 +295,25 @@ def _find_or_create_product(part_number: str) -> StructuredProduct:
     
     # 1. Check review store
     p = review_store.get_product(part_number)
-    if p:
+    if p and p.attributes and len(p.attributes) > 0:
         return p
     for item in review_store.get_all_products():
         if "".join(c for c in item.part_number if c.isalnum()).lower() == pn_norm:
-            return item
+            if item.attributes and len(item.attributes) > 0:
+                return item
 
     # 2. Check cache
     for item in cache._memory_cache.values():
         if "".join(c for c in item.part_number if c.isalnum()).lower() == pn_norm:
-            return item
+            if item.attributes and len(item.attributes) > 0:
+                return item
 
-    # 3. If not found, generate on-demand using zero-API offline spec engine
+    # 3. If not found or empty, generate on-demand using zero-API offline spec engine
     p_input = ProductInput(part_number=part_number, brand="Industrial", short_description=part_number)
     p_generated = extract_offline_product(p_input, [])
     p_generated.extraction_engine = "offline_rule_engine"
     review_store.save_product(p_generated)
+    cache.set(p_generated.part_number, p_generated.brand, p_generated)
     return p_generated
 
 
