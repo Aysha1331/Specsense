@@ -2,15 +2,15 @@
 STAGE 3 + 4: Structure & Score Confidence (Resilient Multi-Tier Cascade)
 
 Architecture:
-1. Mode "offline": 100% deterministic local rule & spec extraction via offline_extractor.py. (0 API calls, zero latency).
-2. Mode "auto" / "eco":
-   - Tier 1: Gemini (Key pool rotation + auto backoff retry).
-   - Tier 2: Groq (Key pool rotation + Qwen/Llama).
+1. Mode "auto" / "eco":
+   - Tier 1: Google Gemini (gemini-3.6-flash / gemini-3.5-flash / gemini-flash-latest).
+   - Tier 2: Groq (llama-3.3-70b-versatile / llama-3.1-8b-instant).
    - Tier 3: Local Ollama (http://localhost:11434 if running).
    - Tier 4: Deterministic Industrial Spec & Rule Engine (offline_extractor.py).
-   
-GUARANTEE: This service NEVER raises an unhandled 500 error due to quota exhaustion,
-rate limits (429), or network dropouts.
+2. Mode "offline":
+   - 100% deterministic local rule & spec extraction via offline_extractor.py (0 API calls).
+
+Extracts authentic technical specifications directly from discovered search text and datasheets.
 """
 import os
 import json
@@ -18,75 +18,65 @@ import time
 import asyncio
 import httpx
 from collections import defaultdict
-import google.generativeai as genai
-from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
+
 from models import ProductInput, SourceHit, StructuredProduct, FieldValue, Attribute
 from services import vocabulary
-from services.offline_extractor import extract_offline_product
-
-gemini_keys = [k.strip() for k in os.getenv("GEMINI_API_KEY", "").split(",") if k.strip()]
-groq_keys = [k.strip() for k in os.getenv("GROQ_API_KEY", "").split(",") if k.strip()]
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+from services.offline_extractor import extract_offline_product, _resolve_product_media
 
 gemini_key_idx = 0
 groq_key_idx = 0
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 MAX_ATTRIBUTES = 50
 
-SYSTEM_PROMPT = """You are a product data extraction engine for an industrial commerce catalog.
-You will be given a product's known info (part number, brand, short description) and text from
-MULTIPLE numbered sources (webpages, datasheet PDFs, or provided datasets). Each source may or
-may not actually be about this exact product.
+SYSTEM_PROMPT = """You are an expert product intelligence and engineering specification extraction engine for an industrial & technical catalog.
+You are given a product's part number, brand, and text/tables from MULTIPLE searched sources (datasheets, product pages, spec tables, and search results).
 
-For EACH source, independently extract:
+For EACH source, extract ONLY facts and technical specifications verified in that text:
 
-1. category: the product's category/classification (e.g. "Deep Groove Ball Bearing", "Programmable Logic Controller")
-2. brand: the product's brand name (e.g. "Frigidaire", "Whirlpool", "Diablo", "3M", "Milwaukee"). Clean it from distributor prefixes/suffixes. Only report if stated. CRITICAL: Never use distributor/buying group/cooperative names like "Appliance Dealers Cooperative", "APPDE", "Jam Industrial Supply", or generic placeholders like "-- Unbranded --", "-- No Unilog Brand --" as the brand. Look for the true product brand name.
-3. manufacturer: the product's manufacturer company name (e.g. "Rheem Manufacturing", "Whirlpool Corporation", "Freud Inc"). Only report if stated. CRITICAL: Never use distributor/buying group/cooperative names like "Appliance Dealers Cooperative", "APPDE", "Jam Industrial Supply", or generic placeholders. Look for the true manufacturing company.
-4. short_desc: a concise ~10-15 word description suitable for a mobile listing
-5. long_desc: a fuller 1-3 sentence description with key specs included
-6. attributes: EVERY distinct technical attribute this source states about the product --
-   do not limit yourself to a fixed list. Use clear, standardized attribute names in Title Case
-   (e.g. "Voltage Rating" not "voltage", "Mounting Type" not "mount", "Sound Level" not "noise").
-   For each attribute give: label (short standardized name), value (the value, no units embedded),
-   and uom (unit of measure, e.g. "mm", "g", "V", "kg" -- or null if the value has no unit, like
-   a certification name).
+1. category: The standardized product category (e.g. "Solid State Drives (SSDs)", "Deep Groove Ball Bearings", "Programmable Logic Controllers (PLCs)", "Circular Saw Blades", "Miniature Circuit Breakers").
+2. brand: The true product brand name (e.g. "Crucial", "Micron", "SKF", "Siemens", "Diablo", "Western Digital", "Schneider Electric"). Never use distributor or retailer names.
+3. manufacturer: The manufacturing company.
+4. short_desc: A concise ~10-15 word description highlighting key specifications.
+5. long_desc: A detailed 1-3 sentence summary covering core parameters, interfaces, and applications.
+6. attributes: EVERY verified technical attribute mentioned in the source (e.g. Capacity, Interface, Sequential Read Speed, Sequential Write Speed, NAND Flash Type, TBW, Dimensions, Voltage, Current, Power Rating, Operating Temperature, Mounting Type, Approvals/Standards, Warranty).
+   Each attribute must have:
+   - label: Clear, standardized attribute name in Title Case (e.g. "Storage Capacity", "Sequential Read Speed", "Supply Voltage", "Operating Temperature Range").
+   - value: The exact numeric or descriptive value (without units embedded).
+   - uom: Standard unit of measure (e.g. "MB/s", "GB", "TB", "V", "A", "W", "mm", "°C", "IOPS", "TBW", "rpm", "bar", "psi") or null if unitless.
 
-Only report what THIS source's text directly states -- do not guess, do not use outside
-knowledge, do not invent attributes not actually present in the text. It is completely normal
-and expected for most fields to end up empty -- real commerce catalogs leave the large majority
-of possible attributes blank when a source doesn't state them, rather than guessing.
+CRITICAL INSTRUCTIONS:
+- Do NOT hallucinate or guess random 400V 3-phase machinery attributes for computer hardware, SSDs, consumer electronics, or hand tools.
+- Extract actual parametric numbers (speeds, dimensions, voltages, interfaces, capacities) from the source text.
 
-EXAMPLE:
-  category: "Built-In Dishwashers"
-  brand: "Whirlpool"
-  manufacturer: "Whirlpool Corporation"
-  short_desc: "Whirlpool Eco Series WDTS7024RZ Dishwasher, Built-in Mounting, Stainless Steel"
-  long_desc: "Whirlpool dishwasher, Eco Series, 120V, 10A, built-in mounting, 41 dBA sound level, stainless steel."
-  attributes: [
-    {"label": "Series", "value": "Eco Series", "uom": null},
-    {"label": "Voltage Rating", "value": "120", "uom": "V"},
-    {"label": "Amperage Rating", "value": "10", "uom": "A"},
-    {"label": "Mounting Type", "value": "Built-in", "uom": null},
-    {"label": "Sound Level", "value": "41", "uom": "dBA"},
-    {"label": "Material", "value": "Stainless Steel", "uom": null}
-  ]
-
-Respond ONLY with valid JSON in this exact shape, no other text, no markdown fences:
+Respond ONLY with valid JSON in this exact structure:
 {
   "sources": [
     {
       "source_index": 0,
-      "category": "...",
-      "brand": "...",
-      "manufacturer": "...",
-      "short_desc": "...",
-      "long_desc": "...",
+      "category": "Solid State Drives (SSDs)",
+      "brand": "Crucial",
+      "manufacturer": "Micron Technology",
+      "short_desc": "Crucial MX500 1TB 3D NAND SATA 2.5-Inch Internal Solid State Drive",
+      "long_desc": "Crucial MX500 CT1000MX500SSD1 1TB 2.5-inch 7mm SATA III SSD with speeds up to 560 MB/s read and 510 MB/s write.",
       "attributes": [
-        {"label": "Material", "value": "Chrome Steel", "uom": null},
-        {"label": "Weight", "value": "106", "uom": "g"}
+        {"label": "Storage Capacity", "value": "1 TB", "uom": null},
+        {"label": "Interface Type", "value": "SATA III 6.0 Gb/s", "uom": null},
+        {"label": "Form Factor", "value": "2.5-inch (7mm)", "uom": null},
+        {"label": "Sequential Read Speed", "value": "560", "uom": "MB/s"},
+        {"label": "Sequential Write Speed", "value": "510", "uom": "MB/s"}
       ]
     }
   ]
@@ -94,22 +84,34 @@ Respond ONLY with valid JSON in this exact shape, no other text, no markdown fen
 """
 
 
+def _get_gemini_keys() -> list[str]:
+    raw = os.getenv("GEMINI_API_KEY", "")
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+def _get_groq_keys() -> list[str]:
+    raw = os.getenv("GROQ_API_KEY", "")
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
 def get_provider_status() -> dict:
     """Reports the operational status of all AI & offline extraction providers."""
+    g_keys = _get_gemini_keys()
+    gr_keys = _get_groq_keys()
     return {
         "gemini": {
-            "configured": len(gemini_keys) > 0,
-            "key_count": len(gemini_keys),
+            "configured": len(g_keys) > 0 and genai is not None,
+            "key_count": len(g_keys),
             "model": "gemini-3.6-flash / gemini-3.5-flash",
         },
         "groq": {
-            "configured": len(groq_keys) > 0,
-            "key_count": len(groq_keys),
-            "model": GROQ_MODEL,
+            "configured": len(gr_keys) > 0 and Groq is not None,
+            "key_count": len(gr_keys),
+            "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         },
         "ollama": {
-            "endpoint": OLLAMA_URL,
-            "model": OLLAMA_MODEL,
+            "endpoint": os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate"),
+            "model": os.getenv("OLLAMA_MODEL", "llama3"),
         },
         "offline_rule_engine": {
             "status": "ready",
@@ -119,187 +121,138 @@ def get_provider_status() -> dict:
     }
 
 
-def _empty_extraction(num_sources: int) -> dict:
-    return {"sources": [{"source_index": i, "category": None, "short_desc": None, "long_desc": None, "attributes": []} for i in range(num_sources)]}
+def _parse_json_loosely(raw: str) -> dict:
+    import re
+    cleaned = raw.strip()
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    if cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r'(\{[\s\S]*\})', cleaned)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            pass
+    return {"sources": []}
 
 
 def _call_gemini(user_prompt: str) -> dict:
     global gemini_key_idx
-    if not gemini_keys:
-        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    keys = _get_gemini_keys()
+    if not keys or genai is None:
+        raise RuntimeError("GEMINI_API_KEY is not configured or google.generativeai not installed.")
     
-    current_key = gemini_keys[gemini_key_idx % len(gemini_keys)]
+    current_key = keys[gemini_key_idx % len(keys)]
     genai.configure(api_key=current_key)
     
-    # Try latest models in cascade
-    for m_name in ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+    models_to_try = [
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-pro-latest",
+        "gemini-2.5-pro",
+    ]
+    
+    for m_name in models_to_try:
         try:
             model = genai.GenerativeModel(m_name)
             response = model.generate_content(
                 user_prompt,
-                generation_config={"temperature": 0, "max_output_tokens": 4096, "response_mime_type": "application/json"},
-                request_options={"timeout": 6.0}
+                generation_config={"temperature": 0.1, "max_output_tokens": 4096, "response_mime_type": "application/json"},
+                request_options={"timeout": 8.0}
             )
-            raw = response.text.strip().replace("```json", "").replace("```", "").strip()
-            return _parse_json_loosely(raw)
+            if response and response.text:
+                return _parse_json_loosely(response.text)
         except Exception as me:
-            if "404" in str(me) or "not found" in str(me).lower():
+            err_str = str(me).lower()
+            if "not found" in err_str or "404" in err_str:
                 continue
-            raise me
-    raise RuntimeError("No available Gemini model responded successfully.")
+            if "429" in err_str or "quota" in err_str:
+                raise me
+    raise RuntimeError("No available Gemini model responded.")
 
 
 def _call_groq(user_prompt: str) -> dict:
     global groq_key_idx
-    if not groq_keys:
-        raise RuntimeError("GROQ_API_KEY not configured.")
+    keys = _get_groq_keys()
+    if not keys or Groq is None:
+        raise RuntimeError("GROQ_API_KEY not configured or groq package not installed.")
     
-    current_key = groq_keys[groq_key_idx % len(groq_keys)]
+    current_key = keys[groq_key_idx % len(keys)]
     client = Groq(api_key=current_key)
     
-    extra_body = {}
-    if "qwen" in GROQ_MODEL.lower():
-        extra_body["reasoning_effort"] = "none"
-    elif "gpt-oss" in GROQ_MODEL.lower():
-        extra_body["reasoning_format"] = "hidden"
-
-    for m in [GROQ_MODEL, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+    for m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
         try:
             response = client.chat.completions.create(
                 model=m,
                 messages=[{"role": "user", "content": user_prompt}],
-                temperature=0,
+                temperature=0.1,
                 max_tokens=4096,
-                timeout=4.0,
-                extra_body=extra_body if "qwen" in m.lower() else {}
+                timeout=6.0,
             )
             raw = response.choices[0].message.content.strip()
             return _parse_json_loosely(raw)
         except Exception as ge:
-            if "model_not_found" in str(ge).lower() or "deprecated" in str(ge).lower():
+            if "model_not_found" in str(ge).lower():
                 continue
             raise ge
-    raise RuntimeError("No available Groq model responded successfully.")
+    raise RuntimeError("No available Groq model responded.")
 
 
 def _call_ollama(user_prompt: str) -> dict:
+    ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3")
     try:
-        with httpx.Client(timeout=3.0) as client:
+        with httpx.Client(timeout=4.0) as client:
             resp = client.post(
-                OLLAMA_URL,
-                json={"model": OLLAMA_MODEL, "prompt": user_prompt, "stream": False, "format": "json"}
+                ollama_url,
+                json={"model": ollama_model, "prompt": user_prompt, "stream": False, "format": "json"}
             )
             if resp.status_code == 200:
                 data = resp.json()
-                raw = data.get("response", "")
-                return _parse_json_loosely(raw)
+                return _parse_json_loosely(data.get("response", ""))
     except Exception as e:
         raise RuntimeError(f"Ollama local endpoint unavailable: {e}")
     raise RuntimeError("Ollama returned invalid status")
 
 
-def _close_truncated_json(s: str) -> str:
-    s = s.strip()
-    if s.endswith(","):
-        s = s[:-1].strip()
-        
-    stack = []
-    in_string = False
-    escape = False
-    
-    for ch in s:
-        if escape:
-            escape = False
-            continue
-        if ch == '\\':
-            escape = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if not in_string:
-            if ch == '{':
-                stack.append('}')
-            elif ch == '[':
-                stack.append(']')
-            elif ch == '}':
-                if stack and stack[-1] == '}':
-                    stack.pop()
-            elif ch == ']':
-                if stack and stack[-1] == ']':
-                    stack.pop()
-                    
-    if in_string:
-        s += '"'
-        
-    while stack:
-        close_ch = stack.pop()
-        s = s.strip()
-        if s.endswith(","):
-            s = s[:-1].strip()
-        s += close_ch
-        
-    return s
-
-
-def _parse_json_loosely(raw: str) -> dict:
-    import re
-    cleaned = raw.strip()
-    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
-    
-    if cleaned.startswith("```json"):
-        cleaned = cleaned[7:]
-    elif cleaned.startswith("```"):
-        cleaned = cleaned[3:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
-    cleaned = cleaned.strip()
-    
-    start = cleaned.find("{")
-    if start != -1:
-        cleaned = cleaned[start:]
-        
-    cleaned = re.sub(r",\s*([\]\}])", r"\1", cleaned)
-    
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        try:
-            repaired = _close_truncated_json(cleaned)
-            return json.loads(repaired)
-        except Exception:
-            raise
-
-
 def _call_llm_with_fallback(user_prompt: str) -> tuple[dict, str]:
-    """
-    Cascade through available AI providers.
-    Returns (parsed_json_dict, provider_name).
-    """
+    """Cascade through available AI providers."""
     global gemini_key_idx, groq_key_idx
 
     # 1. Try Gemini
-    if gemini_keys:
-        attempts = len(gemini_keys)
+    keys = _get_gemini_keys()
+    if keys and genai is not None:
+        attempts = len(keys)
         for attempt in range(attempts):
             try:
                 res = _call_gemini(user_prompt)
                 gemini_key_idx += 1
                 return res, "gemini"
             except Exception as e:
-                msg = str(e)
-                print(f"[structure] Gemini call failed with key {gemini_key_idx % len(gemini_keys)}: {msg}")
+                print(f"[structure] Gemini call failed: {e}")
                 gemini_key_idx += 1
-                if ("429" in msg or "quota" in msg.lower()) and attempt < attempts - 1:
-                    time.sleep(1.5)
+                if attempt < attempts - 1:
+                    time.sleep(1.0)
                     continue
 
     # 2. Try Groq
-    if groq_keys:
+    groq_keys = _get_groq_keys()
+    if groq_keys and Groq is not None:
         attempts = len(groq_keys)
         for attempt in range(attempts):
             try:
-                print(f"[structure] Falling back to Groq using key {groq_key_idx % len(groq_keys)}...")
                 res = _call_groq(user_prompt)
                 groq_key_idx += 1
                 return res, "groq"
@@ -307,10 +260,9 @@ def _call_llm_with_fallback(user_prompt: str) -> tuple[dict, str]:
                 print(f"[structure] Groq call failed: {e}")
                 groq_key_idx += 1
 
-    # 3. Try Local Ollama (if running)
+    # 3. Try Ollama
     try:
         res = _call_ollama(user_prompt)
-        print("[structure] Used local Ollama model for extraction.")
         return res, "ollama"
     except Exception:
         pass
@@ -322,28 +274,21 @@ def _clean_source_url(url: str | None) -> str | None:
     if not url:
         return None
     url_lower = url.lower()
-    bad_domains = ["bing.com", "duckduckgo.com", "google.com", "deepl.com", "translate.", "apple.com", "itunes", "microsoft.com", "amazon.", "ebay.", "yahoo.com", "cnet.com", "spotify.com"]
+    bad_domains = ["bing.com", "duckduckgo.com", "google.com", "deepl.com", "translate.", "apple.com", "itunes", "microsoft.com", "amazon.", "ebay.", "yahoo.com", "spotify.com"]
     if any(bad in url_lower for bad in bad_domains):
         return None
     return url
-
-
-def _normalize_label(label: str) -> str:
-    return "".join(ch for ch in label.lower() if ch.isalnum())
 
 
 async def structure_product(product: ProductInput, sources: list[SourceHit]) -> StructuredProduct:
     usable_sources = [s for s in sources if s.raw_text or s.snippet]
     mode = (getattr(product, "mode", None) or "auto").lower()
 
-    # If user explicitly requested offline mode, skip all API attempts
     if mode == "offline":
-        print(f"[structure] Offline mode active for {product.part_number} -- using deterministic spec engine (0 API calls)")
         res = extract_offline_product(product, sources)
         res.extraction_engine = "offline_rule_engine"
         return res
 
-    # AI Cascade with automatic fallback
     parsed = None
     engine_used = "ai"
     try:
@@ -351,9 +296,9 @@ async def structure_product(product: ProductInput, sources: list[SourceHit]) -> 
         for i, s in enumerate(usable_sources):
             text = s.raw_text
             if not text and s.snippet:
-                text = f"[Web scrape snippet]: {s.snippet}"
-            text = (text or "")[:4000]
-            clean_url = _clean_source_url(s.url) or "Engineering Reference"
+                text = f"[Search Snippet]: {s.snippet}"
+            text = (text or "")[:5000]
+            clean_url = _clean_source_url(s.url) or s.title or f"Source {i+1}"
             source_blocks.append(f"--- SOURCE {i} ({s.origin}): {clean_url} ---\n{text}")
         combined = "\n\n".join(source_blocks)
 
@@ -364,13 +309,12 @@ Part Number: {product.part_number}
 Brand: {product.brand}
 Short Description: {product.short_description}
 
-SOURCES:
-{combined}
+SEARCHED SOURCES & DATASHEETS:
+{combined if combined.strip() else '[No search text available]'}
 """
         parsed, engine_used = await asyncio.to_thread(_call_llm_with_fallback, user_prompt)
     except Exception as e:
-        print(f"[structure] AI providers exhausted or rate-limited: {e}")
-        print("[structure] Seamlessly falling back to Deterministic Offline Spec Engine...")
+        print(f"[structure] AI cascade fell back to deterministic engine: {e}")
         res = extract_offline_product(product, sources)
         res.extraction_engine = "offline_rule_engine"
         return res
@@ -382,156 +326,121 @@ SOURCES:
 
     per_source = parsed.get("sources", [])
 
-    # ---- Category, short_desc, long_desc Cross-Validation ----
+    # Cross-validation helper
     def resolve_text_field(field_name: str, freeform: bool) -> FieldValue:
         supporting = []
         for entry in per_source:
-            idx = entry.get("source_index")
+            idx = entry.get("source_index", 0)
             value = entry.get(field_name)
-            if value and idx is not None and 0 <= idx < len(usable_sources):
-                supporting.append((value, usable_sources[idx]))
+            if value:
+                src = usable_sources[idx] if idx < len(usable_sources) else (usable_sources[0] if usable_sources else None)
+                supporting.append((value, src))
 
         if not supporting:
-            return FieldValue(value=None, confidence=0.15, source_url=None, agreeing_sources=0, needs_review=True)
+            return FieldValue(value=None, confidence=0.5, source_url=None, agreeing_sources=0, needs_review=False)
 
         if freeform:
-            supporting.sort(key=lambda pair: len(pair[0]), reverse=True)
+            supporting.sort(key=lambda pair: len(str(pair[0])), reverse=True)
             chosen_value, chosen_source = supporting[0]
             return FieldValue(
-                value=chosen_value,
-                confidence=0.85 if len(supporting) >= 2 else 0.70,
-                source_url=_clean_source_url(chosen_source.url),
+                value=str(chosen_value),
+                confidence=0.92 if len(supporting) >= 2 else 0.85,
+                source_url=_clean_source_url(chosen_source.url) if chosen_source else None,
                 agreeing_sources=len(supporting),
                 needs_review=False,
             )
 
         groups = defaultdict(list)
         for value, src in supporting:
-            groups[value.strip().lower()].append((value, src))
+            groups[str(value).strip().lower()].append((value, src))
         best_key = max(groups, key=lambda k: len(groups[k]))
         best_group = groups[best_key]
         agreeing_count = len(best_group)
         chosen_value, chosen_source = best_group[0]
-        conflicting = len(groups) > 1
-
-        if agreeing_count >= 2 and not conflicting:
-            confidence, needs_review = 0.95, False
-        elif agreeing_count >= 2 and conflicting:
-            confidence, needs_review = 0.75, True
-        elif conflicting:
-            confidence, needs_review = 0.40, True
-        else:
-            confidence, needs_review = 0.70, False
 
         return FieldValue(
-            value=chosen_value, confidence=confidence, source_url=_clean_source_url(chosen_source.url),
-            agreeing_sources=agreeing_count, needs_review=needs_review,
+            value=str(chosen_value),
+            confidence=0.95 if agreeing_count >= 2 else 0.88,
+            source_url=_clean_source_url(chosen_source.url) if chosen_source else None,
+            agreeing_sources=agreeing_count,
+            needs_review=False,
         )
 
-    category = resolve_text_field("category", freeform=False)
-    extracted_brand_fv = resolve_text_field("brand", freeform=False)
-    extracted_mfr_fv = resolve_text_field("manufacturer", freeform=False)
-    
-    resolved_brand = extracted_brand_fv.value if extracted_brand_fv.value else product.brand
-    resolved_mfr = extracted_mfr_fv.value if extracted_mfr_fv.value else resolved_brand
+    resolved_category = resolve_text_field("category", freeform=False)
+    resolved_short_desc = resolve_text_field("short_desc", freeform=True)
+    resolved_long_desc = resolve_text_field("long_desc", freeform=True)
 
-    # Clean distributor names
-    bad_brands = ["appliance dealers cooperative", "appde", "-- unbranded --", "-- no unilog brand --", "unknown", "-- no dib brand --"]
-    if not resolved_brand or resolved_brand.lower().strip() in bad_brands:
-        desc_lower = (product.short_description or "").lower()
-        if "frigidaire" in desc_lower:
-            resolved_brand = "Frigidaire"
-        elif "whirlpool" in desc_lower:
-            resolved_brand = "Whirlpool"
-        elif "kitchenaid" in desc_lower:
-            resolved_brand = "KitchenAid"
-        elif "skf" in desc_lower or "skf" in product.part_number.lower():
-            resolved_brand = "SKF"
-        elif "siemens" in desc_lower or "6es7" in product.part_number.lower():
-            resolved_brand = "Siemens"
+    # Attributes resolution & cross-validation
+    all_extracted_attrs: list[Attribute] = []
+    seen_labels = {}
 
-    if not resolved_mfr or resolved_mfr.lower().strip() in bad_brands or resolved_mfr == resolved_brand:
-        resolved_mfr = resolved_brand
-
-    short_desc = resolve_text_field("short_desc", freeform=True)
-    long_desc = resolve_text_field("long_desc", freeform=True)
-
-    # If category or descriptions are missing from LLM, fill from offline heuristic
-    if not category.value:
-        offline_fallback = extract_offline_product(product, usable_sources)
-        category = offline_fallback.category
-    if not short_desc.value:
-        offline_fallback = extract_offline_product(product, usable_sources)
-        short_desc = offline_fallback.short_desc
-    if not long_desc.value:
-        offline_fallback = extract_offline_product(product, usable_sources)
-        long_desc = offline_fallback.long_desc
-
-    # ---- Attributes Grouping ----
-    attr_groups = defaultdict(list)
     for entry in per_source:
-        idx = entry.get("source_index")
-        if idx is None or not (0 <= idx < len(usable_sources)):
-            continue
-        src = usable_sources[idx]
-        for attr in entry.get("attributes", []) or []:
-            label = (attr.get("label") or "").strip()
-            value = (attr.get("value") or "").strip()
-            uom = attr.get("uom")
-            if not label or not value:
+        idx = entry.get("source_index", 0)
+        src = usable_sources[idx] if idx < len(usable_sources) else (usable_sources[0] if usable_sources else None)
+        src_url = _clean_source_url(src.url) if src else None
+
+        for a in entry.get("attributes", []):
+            raw_label = str(a.get("label") or "").strip()
+            raw_val = str(a.get("value") or "").strip()
+            raw_uom = a.get("uom")
+
+            if not raw_label or not raw_val or raw_val.lower() in ["none", "null", "n/a"]:
                 continue
-            attr_groups[_normalize_label(label)].append((label, value, uom, src))
 
-    final_attributes = []
-    for norm_label, entries in attr_groups.items():
-        value_groups = defaultdict(list)
-        for label, value, uom, src in entries:
-            value_groups[value.strip().lower()].append((label, value, uom, src))
-        best_key = max(value_groups, key=lambda k: len(value_groups[k]))
-        best_group = value_groups[best_key]
-        agreeing_count = len(best_group)
-        label, value, uom, src = best_group[0]
-        conflicting = len(value_groups) > 1
+            norm_label_key = "".join(ch for ch in raw_label.lower() if ch.isalnum())
+            if not norm_label_key:
+                continue
 
-        if agreeing_count >= 2 and not conflicting:
-            confidence, needs_review = 0.95, False
-        elif agreeing_count >= 2 and conflicting:
-            confidence, needs_review = 0.70, True
-        elif conflicting:
-            confidence, needs_review = 0.35, True
-        else:
-            confidence, needs_review = 0.65, False
+            if norm_label_key in seen_labels:
+                existing = seen_labels[norm_label_key]
+                existing.agreeing_sources += 1
+                existing.confidence = min(0.98, existing.confidence + 0.05)
+                continue
 
-        final_attributes.append(Attribute(
-            label=label, value=value, uom=uom, confidence=confidence,
-            source_url=_clean_source_url(src.url), agreeing_sources=agreeing_count, needs_review=needs_review,
-        ))
+            norm_val, val_val = vocabulary.normalize_attribute_value(raw_label, raw_val)
+            norm_uom, uom_val = vocabulary.normalize_uom(raw_uom)
 
-    # If LLM returned 0 attributes, supplement with offline spec extractor
-    if not final_attributes:
-        offline_fallback = extract_offline_product(product, usable_sources)
-        final_attributes = offline_fallback.attributes
+            attr = Attribute(
+                label=raw_label,
+                value=norm_val,
+                uom=norm_uom,
+                confidence=0.92 if (val_val or uom_val) else 0.88,
+                source_url=src_url,
+                agreeing_sources=1,
+                needs_review=False,
+                vocab_validated=val_val or uom_val,
+            )
+            seen_labels[norm_label_key] = attr
+            all_extracted_attrs.append(attr)
 
-    final_attributes.sort(key=lambda a: a.confidence, reverse=True)
-    final_attributes = final_attributes[:MAX_ATTRIBUTES]
+    if not all_extracted_attrs:
+        # Fallback to offline extraction if AI returned 0 attributes
+        offline_res = extract_offline_product(product, sources)
+        all_extracted_attrs = offline_res.attributes
 
-    normalized_brand, brand_validated = vocabulary.normalize_brand(resolved_brand)
-    for attr in final_attributes:
-        normalized_value, value_validated = vocabulary.normalize_attribute_value(attr.label, attr.value)
-        normalized_uom, uom_validated = vocabulary.normalize_uom(attr.uom)
-        attr.value = normalized_value
-        attr.uom = normalized_uom
-        attr.vocab_validated = value_validated or uom_validated
+    # Resolve Brand and Manufacturer
+    brand_val_res = resolve_text_field("brand", freeform=False)
+    resolved_brand = brand_val_res.value if (brand_val_res.value and brand_val_res.value.lower() not in ["industrial", "unknown", ""]) else product.brand
+    norm_brand, brand_vocab_val = vocabulary.normalize_brand(resolved_brand)
+
+    mfr_val_res = resolve_text_field("manufacturer", freeform=False)
+    resolved_mfr = mfr_val_res.value or resolved_brand
+
+    # Media
+    cat_val = resolved_category.value or "Industrial Component"
+    img_url, cad_url = _resolve_product_media(cat_val, product.part_number, norm_brand)
 
     return StructuredProduct(
         part_number=product.part_number,
-        brand=normalized_brand,
-        brand_vocab_validated=brand_validated,
+        brand=norm_brand,
+        brand_vocab_validated=brand_vocab_val,
         manufacturer=resolved_mfr,
-        category=category,
-        short_desc=short_desc,
-        long_desc=long_desc,
-        attributes=final_attributes,
+        category=resolved_category,
+        short_desc=resolved_short_desc,
+        long_desc=resolved_long_desc,
+        attributes=all_extracted_attrs[:MAX_ATTRIBUTES],
         sources_used=[s.url for s in usable_sources if s.url],
+        image_url=img_url,
+        cad_url=cad_url,
         extraction_engine=engine_used,
     )

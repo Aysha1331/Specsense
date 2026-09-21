@@ -1,10 +1,11 @@
 """
-STAGE 2: Extract
+STAGE 2: Extract (Document & Web Content Intelligence)
 
-Takes a discovered source (a URL) and pulls out usable raw text —
-whether it's a normal webpage or a PDF datasheet. This is the
-"document intelligence" step: turning messy real-world documents
-into clean text the LLM can reason over in Stage 3.
+Takes a discovered source (a URL) and pulls out usable raw text -- whether it's
+a rich webpage, an HTML spec table, or a PDF datasheet.
+
+If a remote server blocks scraping with 403 or times out, it gracefully falls back
+to the verified search snippet and title so no search intelligence is lost.
 """
 import httpx
 import io
@@ -14,140 +15,145 @@ from bs4 import BeautifulSoup
 import pdfplumber
 from models import SourceHit
 
-MAX_CHARS = 20000  # raised from 8000 -- spec tables (dimensions, weight, certs) are often further into the document
+MAX_CHARS = 25000
+
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "cross-site",
+    "Upgrade-Insecure-Requests": "1"
+}
 
 
 async def extract_text(source: SourceHit) -> SourceHit:
     """
-    Fetches the URL and extracts readable text.
+    Fetches the URL and extracts readable text, spec tables, and metadata.
     Mutates and returns the SourceHit with raw_text filled in.
-    On any failure, raw_text stays None — the structuring stage
-    is expected to handle missing sources gracefully rather than crash.
     """
-    # RAG-sourced hits already have raw_text filled in from the local
-    # dataset index -- nothing to fetch over the network.
-    if source.origin == "rag":
+    if source.origin == "rag" and source.raw_text:
+        return source
+
+    if not source.url:
+        source.raw_text = source.snippet or ""
         return source
 
     try:
         async with httpx.AsyncClient(
-            timeout=20.0, follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-            }
+            timeout=8.0, follow_redirects=True, headers=BROWSER_HEADERS
         ) as client:
             resp = await client.get(source.url)
-            resp.raise_for_status()
-            
-            # Resolve real destination URL after redirects
-            if resp.url:
-                final_url = str(resp.url)
-                if not any(bad in final_url.lower() for bad in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "deepl.com"]):
-                    source.url = final_url
-
-            content_type = resp.headers.get("content-type", "")
-
-            if "pdf" in content_type or source.url.lower().endswith(".pdf"):
-                source.raw_text = _extract_pdf_text(resp.content)
-            else:
-                source.raw_text = _extract_html_text(resp.text)
-
+            if resp.status_code == 200:
+                content_type = resp.headers.get("content-type", "").lower()
+                if "pdf" in content_type or source.url.lower().endswith(".pdf"):
+                    extracted_text = _extract_pdf_text(resp.content)
+                else:
+                    extracted_text = _extract_html_text(resp.text)
+                
+                if extracted_text and len(extracted_text.strip()) >= 50:
+                    source.raw_text = extracted_text[:MAX_CHARS]
+                    return source
     except Exception as e:
-        # Don't let one bad source kill the whole pipeline.
-        source.raw_text = None
-        print(f"[extract] failed for {source.url}: {e}")
+        pass
 
+    # Fallback to search snippet and title
+    fallback_parts = []
+    if source.title:
+        fallback_parts.append(f"Title: {source.title}")
+    if source.snippet:
+        fallback_parts.append(f"Snippet: {source.snippet}")
+    source.raw_text = "\n".join(fallback_parts) if fallback_parts else None
     return source
 
 
-def _extract_json_objects(text: str) -> list[str]:
-    results = []
-    # Match pattern: "product": { or "product":{ or "product" : {
-    for match in re.finditer(r'"product"\s*:\s*\{', text):
-        start_idx = match.start()
-        brace_count = 0
-        end_idx = -1
-        for i in range(match.end() - 1, len(text)):
-            if text[i] == '{':
-                brace_count += 1
-            elif text[i] == '}':
-                brace_count -= 1
-                if brace_count == 0:
-                    end_idx = i + 1
-                    break
-        if end_idx != -1:
-            results.append(text[start_idx:end_idx])
-    return results
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extracts text from PDF bytes with pdfplumber."""
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            pages_text = []
+            for i, page in enumerate(pdf.pages[:5]):  # inspect first 5 pages
+                text = page.extract_text()
+                if text:
+                    pages_text.append(f"--- Page {i+1} ---\n{text}")
+                tables = page.extract_tables()
+                for table in tables:
+                    for row in table:
+                        clean_row = [str(c).strip() for c in row if c is not None]
+                        if len(clean_row) >= 2:
+                            pages_text.append(" | ".join(clean_row))
+            return "\n\n".join(pages_text)
+    except Exception:
+        return ""
 
 
 def _extract_html_text(html: str) -> str:
+    """Extracts title, meta descriptions, specification tables, definition lists, and lists."""
     soup = BeautifulSoup(html, "html.parser")
-    extracted_data = []
+    
+    # Remove noise elements
+    for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "svg"]):
+        if tag.get("type") != "application/ld+json":
+            tag.decompose()
 
-    # 1. Extract page title
+    extracted_lines = []
+
+    # 1. Page title
     if soup.title and soup.title.string:
-        extracted_data.append(f"Title: {soup.title.string.strip()}")
+        extracted_lines.append(f"Title: {soup.title.string.strip()}")
 
-    # 2. Extract meta descriptions and keywords
+    # 2. Meta description & og tags
     for meta in soup.find_all("meta"):
         name = (meta.get("name") or meta.get("property") or "").lower()
         content = meta.get("content")
         if content and name in ["description", "keywords", "og:description", "og:title"]:
-            extracted_data.append(f"Meta {name}: {content.strip()}")
+            extracted_lines.append(f"Meta {name}: {content.strip()}")
 
-    # 3. Extract JSON-LD script blocks
+    # 3. JSON-LD structured product data
     for s in soup.find_all("script", type="application/ld+json"):
         if s.string:
-            extracted_data.append(f"JSON-LD Structured Data: {s.string.strip()}")
-
-    # 4. Extract custom embedded product JSON states from JavaScript blocks
-    for s in soup.find_all("script"):
-        # Skip JSON-LD script blocks since we already got them
-        if s.get("type") == "application/ld+json":
-            continue
-        content = s.string or ""
-        if len(content) > 1000 and "product" in content.lower():
             try:
-                json_blocks = _extract_json_objects(content)
-                for block in json_blocks:
-                    # Validate and clean up
-                    wrapped = "{" + block + "}"
-                    try:
-                        parsed = json.loads(wrapped)
-                        # Pretty print it to make it readable for the LLM
-                        extracted_data.append(f"Product State JSON: {json.dumps(parsed)}")
-                    except Exception:
-                        # If validation fails, just append raw matched block
-                        extracted_data.append(f"Product State JSON Raw: {block}")
+                data = json.loads(s.string.strip())
+                extracted_lines.append(f"JSON-LD Product: {json.dumps(data)}")
             except Exception:
                 pass
 
-    # Now decompose scripts, styles, header, footer, nav to clean the body HTML
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.decompose()
+    # 4. Specification Tables (<tr><td>...</td></tr>)
+    for table in soup.find_all("table"):
+        table_rows = []
+        for tr in table.find_all("tr"):
+            cols = [td.get_text(separator=" ", strip=True) for td in tr.find_all(["td", "th"])]
+            cols = [c for c in cols if c]
+            if len(cols) >= 2:
+                table_rows.append(" : ".join(cols[:4]))
+        if table_rows:
+            extracted_lines.append("\n[Spec Table]\n" + "\n".join(table_rows))
 
-    # Extract clean body text
-    body_text = soup.get_text(separator=" ", strip=True)
-    if body_text:
-        extracted_data.append(f"Body Text: {body_text}")
+    # 5. Definition Lists (<dl><dt>...</dt><dd>...</dd></dl>)
+    for dl in soup.find_all("dl"):
+        dts = dl.find_all("dt")
+        dds = dl.find_all("dd")
+        for dt, dd in zip(dts, dds):
+            k = dt.get_text(strip=True)
+            v = dd.get_text(strip=True)
+            if k and v:
+                extracted_lines.append(f"{k}: {v}")
 
-    # Combine everything up to MAX_CHARS
-    full_text = "\n\n".join(extracted_data)
-    return full_text[:MAX_CHARS]
+    # 6. Feature lists (<ul>, <li>)
+    for ul in soup.find_all(["ul", "ol"]):
+        items = [li.get_text(strip=True) for li in ul.find_all("li")]
+        items = [it for it in items if len(it) > 5 and any(c.isalnum() for c in it)]
+        if len(items) >= 2:
+            extracted_lines.append("\n[Features]\n" + "\n".join(f"- {it}" for it in items[:15]))
 
+    # 7. Remaining clean text
+    body_text = soup.get_text(separator="\n", strip=True)
+    body_clean = "\n".join(line.strip() for line in body_text.splitlines() if len(line.strip()) > 20)
+    if body_clean:
+        extracted_lines.append("\n[Body Content]\n" + body_clean[:8000])
 
-def _extract_pdf_text(pdf_bytes: bytes) -> str:
-    text_parts = []
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages[:20]:  # raised from 5 -- physical specs/certs are often on later pages
-            page_text = page.extract_text()
-            if page_text:
-                text_parts.append(page_text)
-            # also pull tables — spec sheets are often table-heavy
-            for table in page.extract_tables():
-                for row in table:
-                    text_parts.append(" | ".join(c or "" for c in row))
-    return "\n".join(text_parts)[:MAX_CHARS]
-
+    return "\n\n".join(extracted_lines)

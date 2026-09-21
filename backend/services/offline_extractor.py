@@ -268,19 +268,29 @@ def _extract_ssd_specs(pn: str, brand: str, desc: str, text: str) -> List[Tuple[
     combined = f"{pn} {brand} {desc} {text}".upper()
     attrs = []
 
-    # 1. Capacity
+    # 1. Capacity (Prioritize exact part number first)
     cap = "1 TB"
-    cap_uom = "TB"
-    if any(k in combined for k in ["2000GB", "2048GB", "2TB", "2.0TB", "CT2000", "2T0"]):
-        cap, cap_uom = "2 TB", "TB"
-    elif any(k in combined for k in ["4000GB", "4TB", "CT4000", "4T0"]):
-        cap, cap_uom = "4 TB", "TB"
-    elif any(k in combined for k in ["500GB", "512GB", "CT500", "500G"]):
-        cap, cap_uom = "500 GB", "GB"
-    elif any(k in combined for k in ["250GB", "256GB", "CT250", "250G"]):
-        cap, cap_uom = "250 GB", "GB"
-    elif any(k in combined for k in ["1000GB", "1024GB", "1TB", "1.0TB", "CT1000", "1T0"]):
-        cap, cap_uom = "1 TB", "TB"
+    pn_upper = pn.upper()
+    if any(k in pn_upper for k in ["1000", "1TB", "1024", "1T0"]):
+        cap = "1 TB"
+    elif any(k in pn_upper for k in ["2000", "2TB", "2048", "2T0"]):
+        cap = "2 TB"
+    elif any(k in pn_upper for k in ["4000", "4TB", "4T0"]):
+        cap = "4 TB"
+    elif any(k in pn_upper for k in ["500", "512"]):
+        cap = "500 GB"
+    elif any(k in pn_upper for k in ["250", "256"]):
+        cap = "250 GB"
+    elif any(k in combined for k in ["1000GB", "1024GB", "1TB", "1.0TB", "CT1000"]):
+        cap = "1 TB"
+    elif any(k in combined for k in ["2000GB", "2048GB", "2TB", "2.0TB", "CT2000"]):
+        cap = "2 TB"
+    elif any(k in combined for k in ["4000GB", "4TB", "CT4000"]):
+        cap = "4 TB"
+    elif any(k in combined for k in ["500GB", "512GB", "CT500"]):
+        cap = "500 GB"
+    elif any(k in combined for k in ["250GB", "256GB", "CT250"]):
+        cap = "250 GB"
 
     attrs.append(("Storage Capacity", cap, None))
 
@@ -1148,8 +1158,9 @@ def extract_offline_product(product: ProductInput, sources: List[SourceHit]) -> 
         extracted_attrs.extend(_extract_electrical_and_physical(combined_text))
         # 5. Key-Value table extraction
         extracted_attrs.extend(_extract_key_value_pairs(combined_text))
-        # 6. Domain Category Engineering Spec Synthesizer
-        extracted_attrs.extend(_synthesize_domain_engineering_specs(category_name, product.part_number, resolved_brand, product.short_description))
+        # 6. Domain Category Engineering Spec Synthesizer (ONLY as fallback if 0 specs found)
+        if len(extracted_attrs) == 0:
+            extracted_attrs.extend(_synthesize_domain_engineering_specs(category_name, product.part_number, resolved_brand, product.short_description))
 
     # Group & Deduplicate
     seen_labels = {}

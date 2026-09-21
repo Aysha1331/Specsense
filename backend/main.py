@@ -174,9 +174,9 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
 
 @app.post("/api/process", response_model=StructuredProduct)
 async def process_product(product: ProductInput):
-    """Runs the resilient pipeline for ONE product with 10s maximum timeout."""
+    """Runs the resilient pipeline for ONE product with 15s maximum timeout."""
     try:
-        return await asyncio.wait_for(_run_pipeline(product), timeout=10.0)
+        return await asyncio.wait_for(_run_pipeline(product), timeout=15.0)
     except Exception as e:
         print(f"[process] fallback on timeout or error: {e}")
         # Zero-crash guarantee
@@ -239,7 +239,7 @@ async def process_batch(batch: BatchRequest):
         p.mode = mode
         async with sem:
             try:
-                return await asyncio.wait_for(_run_pipeline(p), timeout=4.0)
+                return await asyncio.wait_for(_run_pipeline(p), timeout=15.0)
             except Exception as e:
                 print(f"[batch] item fallback for {p.part_number}: {e}")
                 fb = extract_offline_product(p, [])
