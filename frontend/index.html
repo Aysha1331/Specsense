@@ -1175,6 +1175,7 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
           body: JSON.stringify({ products, mode: currentBatchMode })
         });
         if (!res.ok) throw new Error("Batch request failed");
+        const data = await res.json();
         const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
         const rate = (data.total / Math.max(0.01, parseFloat(elapsedSeconds))).toFixed(1);
 
