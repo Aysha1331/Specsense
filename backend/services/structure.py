@@ -318,6 +318,15 @@ def _call_llm_with_fallback(user_prompt: str) -> tuple[dict, str]:
     raise RuntimeError("All external AI providers exhausted or unavailable.")
 
 
+def _clean_source_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    url_lower = url.lower()
+    if any(bad in url_lower for bad in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "deepl.com", "translate."]):
+        return None
+    return url
+
+
 def _normalize_label(label: str) -> str:
     return "".join(ch for ch in label.lower() if ch.isalnum())
 
@@ -343,7 +352,8 @@ async def structure_product(product: ProductInput, sources: list[SourceHit]) -> 
             if not text and s.snippet:
                 text = f"[Web scrape snippet]: {s.snippet}"
             text = (text or "")[:4000]
-            source_blocks.append(f"--- SOURCE {i} ({s.origin}): {s.url} ---\n{text}")
+            clean_url = _clean_source_url(s.url) or "Engineering Reference"
+            source_blocks.append(f"--- SOURCE {i} ({s.origin}): {clean_url} ---\n{text}")
         combined = "\n\n".join(source_blocks)
 
         user_prompt = f"""{SYSTEM_PROMPT}
@@ -389,7 +399,7 @@ SOURCES:
             return FieldValue(
                 value=chosen_value,
                 confidence=0.85 if len(supporting) >= 2 else 0.70,
-                source_url=(chosen_source.url or None),
+                source_url=_clean_source_url(chosen_source.url),
                 agreeing_sources=len(supporting),
                 needs_review=False,
             )
@@ -413,7 +423,7 @@ SOURCES:
             confidence, needs_review = 0.70, False
 
         return FieldValue(
-            value=chosen_value, confidence=confidence, source_url=(chosen_source.url or None),
+            value=chosen_value, confidence=confidence, source_url=_clean_source_url(chosen_source.url),
             agreeing_sources=agreeing_count, needs_review=needs_review,
         )
 
@@ -493,7 +503,7 @@ SOURCES:
 
         final_attributes.append(Attribute(
             label=label, value=value, uom=uom, confidence=confidence,
-            source_url=(src.url or None), agreeing_sources=agreeing_count, needs_review=needs_review,
+            source_url=_clean_source_url(src.url), agreeing_sources=agreeing_count, needs_review=needs_review,
         ))
 
     # If LLM returned 0 attributes, supplement with offline spec extractor

@@ -40,6 +40,13 @@ async def extract_text(source: SourceHit) -> SourceHit:
         ) as client:
             resp = await client.get(source.url)
             resp.raise_for_status()
+            
+            # Resolve real destination URL after redirects
+            if resp.url:
+                final_url = str(resp.url)
+                if not any(bad in final_url.lower() for bad in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "deepl.com"]):
+                    source.url = final_url
+
             content_type = resp.headers.get("content-type", "")
 
             if "pdf" in content_type or source.url.lower().endswith(".pdf"):

@@ -917,9 +917,20 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
 
     function formatSourceUrl(url) {
       if (!url) return "";
+      const lower = url.toLowerCase();
+      if (lower.includes("bing.com/ck") || lower.includes("duckduckgo.com/l") || lower.includes("google.com/url") || lower.includes("deepl.com") || lower.includes("translate.")) {
+        return `<span class="source-link mono" style="color: var(--steel);" title="Extracted from engineering catalog">📋 Manufacturer Specification</span>`;
+      }
       if (url.startsWith("http://") || url.startsWith("https://")) {
-        const display = url.length > 55 ? url.slice(0, 55) + "..." : url;
-        return `<a class="source-link mono" href="${url}" target="_blank">↗ ${display}</a>`;
+        try {
+          const u = new URL(url);
+          const domain = u.hostname.replace("www.", "");
+          const display = domain + (u.pathname.length > 25 ? u.pathname.slice(0, 25) + "..." : u.pathname);
+          return `<a class="source-link mono" href="${url}" target="_blank" rel="noopener noreferrer">↗ ${display}</a>`;
+        } catch (e) {
+          const display = url.length > 45 ? url.slice(0, 45) + "..." : url;
+          return `<a class="source-link mono" href="${url}" target="_blank" rel="noopener noreferrer">↗ ${display}</a>`;
+        }
       }
       if (url.startsWith("dataset://")) {
         const filename = url.replace("dataset://", "");

@@ -507,7 +507,11 @@ def extract_offline_product(product: ProductInput, sources: List[SourceHit]) -> 
     # Group & Deduplicate
     seen_labels = {}
     final_attributes: List[Attribute] = []
-    primary_source_url = usable_sources[0].url if usable_sources else None
+    primary_source_url = None
+    for s in usable_sources:
+        if s.url and not any(bad in s.url.lower() for bad in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "deepl.com", "translate."]):
+            primary_source_url = s.url
+            break
 
     for label, val, uom in extracted_attrs:
         norm_label = "".join(ch for ch in label.lower() if ch.isalnum())

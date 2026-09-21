@@ -50,6 +50,10 @@ EXCLUDED_DOMAINS = [
 def _is_excluded_source(url: str, brand: str) -> bool:
     url_lower = url.lower()
     
+    # Filter out search engine tracking redirects
+    if any(k in url_lower for k in ["bing.com/ck", "duckduckgo.com/l", "google.com/url", "yahoo.com/r"]):
+        return True
+
     # Filter out translation and utility services in path or query
     if any(k in url_lower for k in ["deepl.com", "translator", "translate", "dictionary", "wiktionary", "thesaurus"]):
         return True
