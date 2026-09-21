@@ -25,9 +25,9 @@ def clean_brand(e1_brand: str, part_manuf: str) -> str:
         return brand
     return "Industrial"
 
-async def run_stress_test(target_count: int = 1500):
+async def run_stress_test(target_count: int = 1500, mode: str = "offline"):
     print("=" * 65)
-    print(f"  SPECSENSE STRESS TEST: {target_count} PRODUCTS IN A SINGLE RUN")
+    print(f"  SPECSENSE STRESS TEST: {target_count} PRODUCTS IN '{mode.upper()}' MODE")
     print("=" * 65)
     
     # 1. Load products from dataset
@@ -62,7 +62,7 @@ async def run_stress_test(target_count: int = 1500):
             part_number=pn,
             brand=base.brand,
             short_description=base.short_description,
-            mode="auto"
+            mode=mode
         ))
         idx += 1
 
@@ -73,7 +73,7 @@ async def run_stress_test(target_count: int = 1500):
     print(f"\n[2/3] Launching high-concurrency batch execution ({target_count} products)...")
     start_time = time.time()
     
-    batch_req = BatchRequest(products=products_to_process, mode="auto")
+    batch_req = BatchRequest(products=products_to_process, mode=mode)
     batch_res = await process_batch(batch_req)
     
     elapsed = time.time() - start_time

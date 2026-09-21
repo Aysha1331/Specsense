@@ -105,14 +105,30 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
         review_store.save_product(cached)
         return cached
 
-    # 1. Discover candidate sources (RAG dataset first, web fallback)
+    mode = (getattr(product, "mode", None) or "auto").lower()
+
+    # 1. Zero-API Offline Mode Fast Path (Instant local spec & RAG extraction, 0 HTTP calls)
+    if mode == "offline":
+        local_sources = []
+        if rag_store.ready:
+            try:
+                local_sources = rag_store.retrieve(f"{product.brand} {product.part_number} {product.short_description}", top_k=2)
+            except Exception:
+                pass
+        result = extract_offline_product(product, local_sources)
+        result.extraction_engine = "offline_rule_engine"
+        review_store.save_product(result)
+        cache.set(product.part_number, product.brand, result)
+        return result
+
+    # 2. Discover candidate sources (RAG dataset first, web fallback)
     sources = []
     try:
         sources = await discover_sources(product, max_results=6)
     except Exception as de:
         print(f"[discover] discovery error: {de} -- falling back to local metadata")
 
-    # 2. Extract raw text from all sources concurrently
+    # 3. Extract raw text from all sources concurrently
     extracted = []
     if sources:
         try:
@@ -121,7 +137,7 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
             print(f"[extract] extraction error: {ee}")
             extracted = sources
 
-    # 3. Filter valid sources
+    # 4. Filter valid sources
     valid_sources = []
     for s in extracted:
         if s.origin == "rag" or (s.raw_text and len(s.raw_text.strip()) >= 100):
@@ -131,7 +147,7 @@ async def _run_pipeline(product: ProductInput) -> StructuredProduct:
 
     final_sources = valid_sources[:3]
 
-    # 4. Multi-tier structuring (AI with automatic deterministic fallback)
+    # 5. Multi-tier structuring (AI with automatic deterministic fallback)
     try:
         result = await structure_product(product, final_sources)
     except Exception as se:
@@ -165,10 +181,11 @@ async def process_batch(batch: BatchRequest):
     and per-item error isolation.
     """
     start = time.time()
-    mode = batch.mode or "auto"
+    mode = (batch.mode or "auto").lower()
     
-    # Process max 4 products concurrently
-    sem = asyncio.Semaphore(4)
+    # Offline mode doesn't hit network or external APIs, so use high concurrency
+    concurrency = 32 if mode == "offline" else 4
+    sem = asyncio.Semaphore(concurrency)
     
     async def sem_pipeline(p: ProductInput):
         p.mode = mode
