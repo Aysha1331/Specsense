@@ -309,10 +309,11 @@ async def discover_sources(product: ProductInput, max_results: int = 6) -> list[
         brand_clean = ""
 
     pn = product.part_number.strip()
+    query_target = pn if (brand_clean and pn.lower().startswith(brand_clean.lower())) else f"{brand_clean} {pn}".strip()
     
     # Precise, high-yield technical queries
-    primary_query = f"{brand_clean} {pn} technical specifications datasheet".strip()
-    secondary_query = f'"{pn}" {brand_clean} specs'.strip()
+    primary_query = f"{query_target} technical specifications datasheet".strip()
+    secondary_query = f'"{pn}" specs'.strip()
     
     all_hits = list(rag_hits)
     seen_urls = {h.url for h in all_hits if h.url}

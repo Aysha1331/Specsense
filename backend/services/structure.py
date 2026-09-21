@@ -417,10 +417,18 @@ SEARCHED SOURCES & DATASHEETS:
             seen_labels[norm_label_key] = attr
             all_extracted_attrs.append(attr)
 
-    if not all_extracted_attrs:
-        # Fallback to offline extraction if AI returned 0 attributes
+    if len(all_extracted_attrs) < 5:
+        # Augment with offline extraction to ensure comprehensive specifications
         offline_res = extract_offline_product(product, sources)
-        all_extracted_attrs = offline_res.attributes
+        for off_attr in offline_res.attributes:
+            norm_k = "".join(ch for ch in off_attr.label.lower() if ch.isalnum())
+            if norm_k not in seen_labels:
+                seen_labels[norm_k] = off_attr
+                all_extracted_attrs.append(off_attr)
+
+    if not resolved_category.value or resolved_category.value.lower() in ["unknown", "generic", "component", "none", "null", "industrial component"]:
+        offline_res = extract_offline_product(product, sources)
+        resolved_category = offline_res.category
 
     # Resolve Brand and Manufacturer
     brand_val_res = resolve_text_field("brand", freeform=False)
