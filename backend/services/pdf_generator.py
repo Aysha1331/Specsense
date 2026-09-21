@@ -153,8 +153,6 @@ def _build_product_flowables(p: StructuredProduct, styles: dict) -> list:
     cat_val = p.category.value or "Industrial Component"
     mfr_val = p.manufacturer or p.brand
     engine_val = (p.extraction_engine or "AI Cascade").upper()
-    img_url = p.image_url or "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop&q=80"
-    cad_url = p.cad_url or f"https://cad.specsense.io/models/{safe_text(p.part_number)}.step"
 
     summary_data = [
         [Paragraph("<b>Part Number:</b>", styles["meta_label"]), Paragraph(safe_text(p.part_number), styles["meta_val"]),
@@ -163,8 +161,6 @@ def _build_product_flowables(p: StructuredProduct, styles: dict) -> list:
          Paragraph("<b>Manufacturer:</b>", styles["meta_label"]), Paragraph(safe_text(mfr_val), styles["meta_val"])],
         [Paragraph("<b>Intelligence Engine:</b>", styles["meta_label"]), Paragraph(safe_text(engine_val), styles["meta_val"]),
          Paragraph("<b>Category Confidence:</b>", styles["meta_label"]), Paragraph(f"{(p.category.confidence*100):.0f}%", styles["badge_high"])],
-        [Paragraph("<b>Product Image:</b>", styles["meta_label"]), Paragraph(f'<a href="{safe_text(img_url)}"><font color="#0284c7"><b>↗ View High-Res Photo</b></font></a>', styles["meta_val"]),
-         Paragraph("<b>3D CAD / Schematic:</b>", styles["meta_label"]), Paragraph(f'<a href="{safe_text(cad_url)}"><font color="#059669"><b>↗ Download 3D STEP</b></font></a>', styles["meta_val"])],
     ]
 
     t_summary = Table(summary_data, colWidths=[1.3*inch, 2.2*inch, 1.4*inch, 2.3*inch])
@@ -178,27 +174,7 @@ def _build_product_flowables(p: StructuredProduct, styles: dict) -> list:
         ('RIGHTPADDING', (0,0), (-1,-1), 7),
     ]))
     flowables.append(t_summary)
-    flowables.append(Spacer(1, 10))
-
-    # Technical Media & CAD Asset Banner
-    flowables.append(Paragraph("Technical Media & 3D Engineering Assets", styles["section"]))
-    media_data = [
-        [
-            Paragraph(f"<b>Engineering Visual & CAD Specification:</b><br/><font color='#4a6b8f'>Certified 2D technical drawing and parametric 3D CAD assets for <b>{safe_text(p.brand)} {safe_text(p.part_number)}</b>.</font>", styles["body"]),
-            Paragraph(f'<a href="{safe_text(img_url)}"><font color="#0284c7"><b>📷 Open Photo (800x800) ↗</b></font></a><br/><br/><a href="{safe_text(cad_url)}"><font color="#059669"><b>📐 STEP 3D CAD Model ↗</b></font></a>', styles["meta_val"])
-        ]
-    ]
-    t_media = Table(media_data, colWidths=[5.2*inch, 2.0*inch])
-    t_media.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), light_bg),
-        ('BOX', (0,0), (-1,-1), 0.5, line_color),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-    ]))
-    flowables.append(t_media)
-    flowables.append(Spacer(1, 10))
+    flowables.append(Spacer(1, 12))
 
     # Commerce Descriptions
     flowables.append(Paragraph("Commerce & Catalog Descriptions", styles["section"]))
@@ -356,7 +332,6 @@ def generate_catalog_pdf(products: List[StructuredProduct]) -> bytes:
                 Paragraph("<b>Brand</b>", styles["th"]),
                 Paragraph("<b>Category</b>", styles["th"]),
                 Paragraph("<b>Key Technical Specs</b>", styles["th"]),
-                Paragraph("<b>Media / CAD</b>", styles["th"]),
                 Paragraph("<b>Conf.</b>", styles["th"]),
             ]
         ]
@@ -368,19 +343,17 @@ def generate_catalog_pdf(products: List[StructuredProduct]) -> bytes:
                 uom = f" {safe_text(a.uom)}" if a.uom else ""
                 top_specs.append(f"{safe_text(a.label)}: <b>{safe_text(a.value)}{uom}</b>")
             specs_summary = "; ".join(top_specs) if top_specs else safe_text(p.short_desc.value or "Standard catalog spec", 50)
-            cat_text = safe_text(p.category.value or "Industrial", 24)
-            img_link = p.image_url or "https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop&q=80"
+            cat_text = safe_text(p.category.value or "Industrial", 28)
 
             table_rows.append([
                 Paragraph(f"<b>{safe_text(p.part_number)}</b>", styles["td"]),
                 Paragraph(safe_text(p.brand), styles["td"]),
                 Paragraph(cat_text, styles["td"]),
                 Paragraph(specs_summary, styles["td"]),
-                Paragraph(f'<a href="{safe_text(img_link)}"><font color="#0284c7"><b>📷 Photo ↗</b></font></a>', styles["td"]),
                 Paragraph(f"{(p.category.confidence*100):.0f}%", styles["td"]),
             ])
 
-        t_catalog = Table(table_rows, colWidths=[1.6*inch, 1.1*inch, 1.4*inch, 2.0*inch, 0.7*inch, 0.4*inch])
+        t_catalog = Table(table_rows, colWidths=[1.8*inch, 1.2*inch, 1.5*inch, 2.2*inch, 0.5*inch])
         t_catalog.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), navy),
             ('ALIGN', (0,0), (-1,-1), 'LEFT'),
