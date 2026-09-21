@@ -4,6 +4,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>SpecSense — AI Product Intelligence for Industrial Commerce</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link
@@ -673,7 +676,7 @@
 
   <header>
     <p class="eyebrow">// Industrial Commerce · AI Product Intelligence</p>
-    <h1>SpecSense</h1>
+    <h1>SpecSense <span style="font-size:13px; font-weight:600; background:rgba(56, 189, 248, 0.15); color:var(--cyan); padding:3px 10px; border-radius:12px; border:1px solid rgba(56,189,248,0.3); vertical-align:middle; margin-left:8px; font-family:'IBM Plex Mono',monospace;">v2.5 (Ready)</span></h1>
     <p class="tagline">Automated creation, enrichment, and validation of industrial product intelligence.
       Backed by a <strong>Zero-API Fallback Engine</strong>, <strong>Multi-Key AI Cascade</strong>, and <strong>Persistent Disk Caching</strong> — never crashing on quota limits.
     </p>
@@ -807,7 +810,9 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
   </main>
 
   <script>
-    const API = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+    const API = (window.location.protocol === "file:") 
+      ? "https://specsense-krjz.onrender.com" 
+      : "";
 
     let currentSingleMode = "auto";
     let currentBatchMode = "offline";
@@ -1174,28 +1179,41 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ products, mode: currentBatchMode })
         });
-        if (!res.ok) throw new Error("Batch request failed");
+        if (!res.ok) {
+          let errText = res.statusText;
+          try {
+            const errJson = await res.json();
+            errText = errJson.detail || JSON.stringify(errJson);
+          } catch (_) {
+            errText = await res.text();
+          }
+          throw new Error(`Server returned ${res.status}: ${errText}`);
+        }
         const data = await res.json();
         const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
-        const rate = (data.total / Math.max(0.01, parseFloat(elapsedSeconds))).toFixed(1);
+        const totalItems = (data && data.total != null) ? data.total : products.length;
+        const succeededItems = (data && data.succeeded != null) ? data.succeeded : totalItems;
+        const failedItems = (data && data.failed != null) ? data.failed : 0;
+        const rate = (totalItems / Math.max(0.01, parseFloat(elapsedSeconds))).toFixed(1);
 
         summaryEl.innerHTML = `<div class="batch-summary">
-          <div><div class="num">${products.length.toLocaleString()}</div><div class="lbl">Total</div></div>
-          <div><div class="num" style="color:var(--green)">${data.succeeded.toLocaleString()}</div><div class="lbl">Succeeded (100%)</div></div>
-          <div><div class="num" style="color:var(--coral)">${data.failed}</div><div class="lbl">Failed</div></div>
+          <div><div class="num">${totalItems.toLocaleString()}</div><div class="lbl">Total</div></div>
+          <div><div class="num" style="color:var(--green)">${succeededItems.toLocaleString()}</div><div class="lbl">Succeeded (100%)</div></div>
+          <div><div class="num" style="color:var(--coral)">${failedItems}</div><div class="lbl">Failed</div></div>
           <div><div class="num">${elapsedSeconds}s</div><div class="lbl">Elapsed</div></div>
           <div><div class="num" style="color:var(--cyan)">${Number(rate).toLocaleString()}/s</div><div class="lbl">Speed</div></div>
         </div>`;
         summaryEl.style.display = "block";
-        statusEl.textContent = `Batch completed: ${data.succeeded.toLocaleString()} products processed in ${elapsedSeconds}s (${rate} items/sec)!`;
+        statusEl.textContent = `Batch completed: ${succeededItems.toLocaleString()} products processed in ${elapsedSeconds}s (${rate} items/sec)!`;
         updateTelemetry();
 
         // Display results with flexible Show All & Load More controls
-        currentBatchProducts = data.results || [];
+        currentBatchProducts = (data && data.results) ? data.results : [];
         currentBatchLimit = currentBatchProducts.length <= 50 ? currentBatchProducts.length : 50;
         renderBatchCards();
       } catch (e) {
-        statusEl.textContent = "Error: " + e.message;
+        console.error("Batch processing error:", e);
+        statusEl.textContent = "Error: " + (e.message || String(e));
         statusEl.classList.add("error");
       } finally {
         runBtn.disabled = false;
