@@ -1059,19 +1059,22 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
           body: JSON.stringify({ part_number, brand, short_description, mode: currentSingleMode })
         });
         await animation;
+        const rawText = await res.text();
         if (!res.ok) {
           let errMsg = `Request failed (${res.status})`;
           try {
-            const err = await res.json();
-            errMsg = err.detail || errMsg;
+            const err = JSON.parse(rawText);
+            errMsg = err.detail || (typeof err === "string" ? err : JSON.stringify(err));
           } catch (jsonErr) {
             if (res.status === 504 || res.status === 502) {
               errMsg = "Server is warming up or timed out. Please try again in 5 seconds.";
+            } else if (rawText) {
+              errMsg = rawText.slice(0, 150);
             }
           }
           throw new Error(errMsg);
         }
-        const data = await res.json();
+        const data = JSON.parse(rawText);
         resultEl.innerHTML = renderProduct(data);
         resultEl.style.display = "block";
         statusEl.textContent = `Completed with ${data.attributes.length} attributes (${data.extraction_engine}).`;
@@ -1133,7 +1136,7 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
       reader.readAsText(file);
     });
 
-    // Batch Run (Supports 1 to 10,000+ items of any custom format)
+    // Batch Run (Supports 1 to 10,000+ items of any custom format with live chunking)
     document.getElementById("b-run").addEventListener("click", async () => {
       const raw = document.getElementById("b-input").value.trim();
       const statusEl = document.getElementById("b-status");
@@ -1173,33 +1176,55 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
       statusEl.textContent = `Processing ${products.length.toLocaleString()} products in '${currentBatchMode}' mode...`;
 
       const startTime = Date.now();
+      const chunkSize = currentBatchMode === "offline" ? 250 : 25;
+      const allResults = [];
+      let totalFailed = 0;
+
       try {
-        const res = await fetch(`${API}/api/batch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ products, mode: currentBatchMode })
-        });
-        if (!res.ok) {
-          let errText = res.statusText;
-          try {
-            const errJson = await res.json();
-            errText = errJson.detail || JSON.stringify(errJson);
-          } catch (_) {
-            errText = await res.text();
+        for (let i = 0; i < products.length; i += chunkSize) {
+          const chunk = products.slice(i, i + chunkSize);
+          const totalChunks = Math.ceil(products.length / chunkSize);
+          
+          if (totalChunks > 1) {
+            statusEl.textContent = `Processing items ${(i + 1).toLocaleString()}–${Math.min(i + chunkSize, products.length).toLocaleString()} of ${products.length.toLocaleString()} (${Math.round((i / products.length) * 100)}%)...`;
           }
-          throw new Error(`Server returned ${res.status}: ${errText}`);
+
+          const res = await fetch(`${API}/api/batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ products: chunk, mode: currentBatchMode })
+          });
+
+          const rawText = await res.text();
+          if (!res.ok) {
+            let errDetail = `Server returned status ${res.status}`;
+            try {
+              const errJson = JSON.parse(rawText);
+              errDetail = errJson.detail || (typeof errJson === "string" ? errJson : JSON.stringify(errJson));
+            } catch (_) {
+              if (rawText) errDetail = rawText.slice(0, 150);
+            }
+            throw new Error(errDetail);
+          }
+
+          const data = JSON.parse(rawText);
+          if (data && data.results) {
+            allResults.push(...data.results);
+          }
+          if (data && data.failed) {
+            totalFailed += data.failed;
+          }
         }
-        const data = await res.json();
+
         const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
-        const totalItems = (data && data.total != null) ? data.total : products.length;
-        const succeededItems = (data && data.succeeded != null) ? data.succeeded : totalItems;
-        const failedItems = (data && data.failed != null) ? data.failed : 0;
+        const totalItems = products.length;
+        const succeededItems = allResults.length;
         const rate = (totalItems / Math.max(0.01, parseFloat(elapsedSeconds))).toFixed(1);
 
         summaryEl.innerHTML = `<div class="batch-summary">
           <div><div class="num">${totalItems.toLocaleString()}</div><div class="lbl">Total</div></div>
           <div><div class="num" style="color:var(--green)">${succeededItems.toLocaleString()}</div><div class="lbl">Succeeded (100%)</div></div>
-          <div><div class="num" style="color:var(--coral)">${failedItems}</div><div class="lbl">Failed</div></div>
+          <div><div class="num" style="color:var(--coral)">${totalFailed}</div><div class="lbl">Failed</div></div>
           <div><div class="num">${elapsedSeconds}s</div><div class="lbl">Elapsed</div></div>
           <div><div class="num" style="color:var(--cyan)">${Number(rate).toLocaleString()}/s</div><div class="lbl">Speed</div></div>
         </div>`;
@@ -1208,7 +1233,7 @@ DCB518ASTS06G | Freud Inc | Sanding Belt"></textarea>
         updateTelemetry();
 
         // Display results with flexible Show All & Load More controls
-        currentBatchProducts = (data && data.results) ? data.results : [];
+        currentBatchProducts = allResults;
         currentBatchLimit = currentBatchProducts.length <= 50 ? currentBatchProducts.length : 50;
         renderBatchCards();
       } catch (e) {

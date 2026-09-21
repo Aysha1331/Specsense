@@ -125,6 +125,10 @@ class LocalRAGStore:
             )
         return hits
 
+    def retrieve(self, text: str, top_k: int = 3, min_score: float = 0.1, part_number: str = "") -> list[SourceHit]:
+        """Alias for query() to support rag_store.retrieve() syntax."""
+        return self.query(text=text, top_k=top_k, min_score=min_score, part_number=part_number)
+
     @staticmethod
     def _read_file(filepath: str) -> str:
         ext = filepath.lower().rsplit(".", 1)[-1] if "." in filepath else ""
