@@ -28,27 +28,38 @@ SERPAPI_URL = "https://serpapi.com/search"
 # offenders; results from these domains are filtered out entirely
 # before extraction ever sees them.
 EXCLUDED_DOMAINS = [
+    # Marketplaces & Distributors
     "amazon.", "ebay.", "walmart.", "aliexpress.", "alibaba.",
     "mercateo.", "123bearing.", "grainger.", "mcmaster.", "rsonline.",
     "digikey.", "mouser.", "newark.", "farnell.", "zoro.", "homedepot.",
     "lowes.", "wayfair.", "target.", "bestbuy.", "globalindustrial.",
     "thomasnet.", "indiamart.", "made-in-china.",
+    # Translation services & dictionaries
+    "deepl.com", "translate.google.", "bing.com/translator", "reverso.net",
+    "linguee.", "yandex.com/translate", "systran.", "freetranslation.",
+    "dictionary.", "thesaurus.", "wiktionary.", "cambridge.org",
+    "merriam-webster.", "collinsdictionary.", "vocabulary.com", "wordreference.",
+    # Social & generic media
     "facebook.com", "instagram.com", "twitter.com", "x.com", "youtube.com",
     "pinterest.com", "play.google.com", "apps.apple.com", "apps.microsoft.com",
+    "reddit.com", "quora.com", "medium.com", "linkedin.com", "wikipedia.org",
+    "github.com", "gitlab.com", "stackoverflow.com",
 ]
 
 
 def _is_excluded_source(url: str, brand: str) -> bool:
     url_lower = url.lower()
     
+    # Filter out translation and utility services in path or query
+    if any(k in url_lower for k in ["deepl.com", "translator", "translate", "dictionary", "wiktionary", "thesaurus"]):
+        return True
+
     # Filter out adult/inappropriate spam domains
     adult_keywords = ["xhamster", "pornviden", "bokep", "porn", "xxx", "adult", "sex", "redtube", "pornhub", "xnxx", "xvideos"]
     if any(kw in url_lower for kw in adult_keywords):
         return True
         
     # Filter out homepages and generic non-product pages
-    if "wikipedia.org" in url_lower or "linkedin.com" in url_lower:
-        return True
     try:
         parsed = urlparse(url)
         path = parsed.path.strip("/")
@@ -60,7 +71,7 @@ def _is_excluded_source(url: str, brand: str) -> bool:
         if len(parts) == 1 and (len(parts[0]) == 2 or (len(parts[0]) == 5 and parts[0][2] == "-")):
             return True
         # If it's a generic corporate page
-        generic_keywords = ["/career", "/job", "/about", "/login", "/register", "/contact", "/terms", "/privacy", "/press"]
+        generic_keywords = ["/career", "/job", "/about", "/login", "/register", "/contact", "/terms", "/privacy", "/press", "/help", "/faq", "/support/contact"]
         if any(kw in url_lower for kw in generic_keywords):
             return True
     except Exception:

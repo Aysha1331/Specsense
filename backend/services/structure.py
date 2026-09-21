@@ -31,7 +31,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 
 gemini_key_idx = 0
 groq_key_idx = 0
-GROQ_MODEL = "qwen/qwen3.6-27b"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 MAX_ATTRIBUTES = 50
 
@@ -100,7 +100,7 @@ def get_provider_status() -> dict:
         "gemini": {
             "configured": len(gemini_keys) > 0,
             "key_count": len(gemini_keys),
-            "model": "gemini-2.5-flash / gemini-1.5-flash",
+            "model": "gemini-3.6-flash / gemini-3.5-flash",
         },
         "groq": {
             "configured": len(groq_keys) > 0,
@@ -131,8 +131,8 @@ def _call_gemini(user_prompt: str) -> dict:
     current_key = gemini_keys[gemini_key_idx % len(gemini_keys)]
     genai.configure(api_key=current_key)
     
-    # Try gemini-2.5-flash, fallback to gemini-1.5-flash
-    for m_name in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+    # Try latest models in cascade
+    for m_name in ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
         try:
             model = genai.GenerativeModel(m_name)
             response = model.generate_content(

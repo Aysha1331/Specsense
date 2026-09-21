@@ -108,7 +108,15 @@ SIEMENS_PLC_SPECS = {
 
 def _infer_category(pn: str, brand: str, desc: str, combined_text: str) -> str:
     text = f"{pn} {brand} {desc} {combined_text}".lower()
+    pn_clean = pn.upper().replace(" ", "")
     
+    # 1. Proximity & Industrial Sensors (e.g. Omron E2E series, inductive/photoelectric)
+    if pn_clean.startswith("E2E") or any(k in text for k in ["proximity sensor", "photoelectric sensor", "inductive sensor", "capacitive sensor", "laser sensor"]):
+        return "Inductive Proximity Sensors"
+    if any(k in text for k in ["pressure sensor", "transducer", "load cell"]):
+        return "Industrial Sensors"
+
+    # 2. Bearings (requires bearing keywords or standard 6xxx bearing code)
     if any(k in text for k in ["ball bearing", "roller bearing", "groove bearing", "pillow block", "flange bearing", "tapered roller", "spherical roller"]) or re.search(r'\b6\d{3}[-\w]*', pn):
         if "deep groove" in text or re.search(r'\b6\d{3}', pn):
             return "Deep Groove Ball Bearings"
@@ -118,9 +126,11 @@ def _infer_category(pn: str, brand: str, desc: str, combined_text: str) -> str:
             return "Spherical Roller Bearings"
         return "Ball Bearings"
         
+    # 3. PLCs & Automation
     if any(k in text for k in ["plc", "programmable logic controller", "s7-1200", "s7-1500", "compact cpu", "cpu 1214c", "cpu 1212c", "controllogix", "compactlogix", "6es7"]):
         return "Programmable Logic Controllers (PLCs)"
         
+    # 4. Other Industrial & Appliance Categories
     if any(k in text for k in ["dishwasher", "dish washer"]):
         return "Built-In Dishwashers"
     if any(k in text for k in ["refrigerator", "fridge", "freezer"]):
@@ -131,8 +141,6 @@ def _infer_category(pn: str, brand: str, desc: str, combined_text: str) -> str:
         return "Cutting Tools & Blades"
     if any(k in text for k in ["valve", "solenoid valve", "ball valve", "check valve", "butterfly valve"]):
         return "Valves & Actuators"
-    if any(k in text for k in ["sensor", "proximity sensor", "photoelectric sensor", "pressure sensor", "transducer"]):
-        return "Industrial Sensors"
     if any(k in text for k in ["vfd", "variable frequency drive", "inverter", "ac drive", "servo drive"]):
         return "Variable Frequency Drives (VFDs)"
     if any(k in text for k in ["circuit breaker", "mcb", "mccb", "contactor", "relay", "overload relay"]):
@@ -158,20 +166,73 @@ def _extract_bearing_specs(pn: str) -> List[Tuple[str, str, Optional[str]]]:
     pn_clean = pn.upper().replace(" ", "")
     
     series_match = re.search(r'\b(6\d{3})\b', pn_clean)
-    if series_match:
-        series_code = series_match.group(1)
-        if series_code in BEARING_SERIES_SPECS:
-            specs = BEARING_SERIES_SPECS[series_code]
-            for label, val_uom in specs.items():
-                if label != "Category":
-                    attrs.append((label, val_uom[0], val_uom[1]))
-            attrs.append(("Bearing Type", "Deep Groove Ball Bearing", None))
-            attrs.append(("Material", "Chrome Steel (100Cr6)", None))
-            attrs.append(("Number of Rows", "1", None))
-            
+    if not series_match:
+        return []
+
+    series_code = series_match.group(1)
+    if series_code in BEARING_SERIES_SPECS:
+        specs = BEARING_SERIES_SPECS[series_code]
+        for label, val_uom in specs.items():
+            if label != "Category":
+                attrs.append((label, val_uom[0], val_uom[1]))
+        attrs.append(("Bearing Type", "Deep Groove Ball Bearing", None))
+        attrs.append(("Material", "Chrome Steel (100Cr6)", None))
+        attrs.append(("Number of Rows", "1", None))
+        
+    # Only match bearing suffixes on actual bearing part numbers
+    suffix_part = pn_clean[series_match.end():]
     for suffix, (label, val, uom) in BEARING_SUFFIXES.items():
-        if suffix in pn_clean:
+        # Match as whole suffix segment, preceded by hyphen or at end
+        if suffix in suffix_part:
             attrs.append((label, val, uom))
+            
+    return attrs
+
+
+def _extract_sensor_specs(pn: str, text: str) -> List[Tuple[str, str, Optional[str]]]:
+    attrs = []
+    pn_clean = pn.upper().replace(" ", "")
+    combined = f"{pn_clean} {text}".upper()
+    
+    # Omron E2E proximity sensors (e.g. E2E-X5ME1-Z, E2E-X2D1-N, E2E-X10MY1)
+    if pn_clean.startswith("E2E") or "E2E-" in pn_clean:
+        attrs.append(("Sensor Type", "Inductive Proximity Sensor", None))
+        attrs.append(("Supply Voltage", "12-24", "V"))
+        attrs.append(("Voltage Type", "DC 3-Wire", None))
+        attrs.append(("Enclosure Rating", "IP67", None))
+        
+        # Sensing distance: X2 -> 2mm, X5 -> 5mm, X7 -> 7mm, X10 -> 10mm, X14 -> 14mm, X18 -> 18mm, X20 -> 20mm
+        dist_match = re.search(r'X(\d+)', pn_clean)
+        if dist_match:
+            attrs.append(("Sensing Distance", dist_match.group(1), "mm"))
+            
+        # Thread size
+        if "X5M" in pn_clean or "X2E" in pn_clean or "M12" in combined:
+            attrs.append(("Thread Size", "M12", None))
+        elif "X10M" in pn_clean or "M18" in combined:
+            attrs.append(("Thread Size", "M18", None))
+        elif "X18M" in pn_clean or "X20M" in pn_clean or "M30" in combined:
+            attrs.append(("Thread Size", "M30", None))
+        elif "X2M" in pn_clean or "M8" in combined:
+            attrs.append(("Thread Size", "M8", None))
+            
+        # Mounting / Shielding: 'M' after distance indicates unshielded (non-flush) in E2E nomenclature
+        if re.search(r'X\d+M', pn_clean):
+            attrs.append(("Mounting / Shielding", "Unshielded (Non-Flush)", None))
+        else:
+            attrs.append(("Mounting / Shielding", "Shielded (Flush)", None))
+            
+        # Output type: E1 = NPN NO, E2 = NPN NC, F1 = PNP NO, F2 = PNP NC, D1 = DC 2-wire NO, D2 = DC 2-wire NC
+        if "E1" in pn_clean:
+            attrs.append(("Output Configuration", "NPN Normally Open (NO)", None))
+        elif "E2" in pn_clean:
+            attrs.append(("Output Configuration", "NPN Normally Closed (NC)", None))
+        elif "F1" in pn_clean:
+            attrs.append(("Output Configuration", "PNP Normally Open (NO)", None))
+        elif "F2" in pn_clean:
+            attrs.append(("Output Configuration", "PNP Normally Closed (NC)", None))
+        elif "D1" in pn_clean:
+            attrs.append(("Output Configuration", "DC 2-Wire NO", None))
             
     return attrs
 
@@ -436,9 +497,11 @@ def extract_offline_product(product: ProductInput, sources: List[SourceHit]) -> 
     extracted_attrs.extend(_extract_bearing_specs(product.part_number))
     # 2. PLC catalog rules
     extracted_attrs.extend(_extract_plc_specs(product.part_number))
-    # 3. Electrical & physical parameters regex
+    # 3. Sensor rules
+    extracted_attrs.extend(_extract_sensor_specs(product.part_number, combined_text))
+    # 4. Electrical & physical parameters regex
     extracted_attrs.extend(_extract_electrical_and_physical(combined_text))
-    # 4. Key-Value table extraction
+    # 5. Key-Value table extraction
     extracted_attrs.extend(_extract_key_value_pairs(combined_text))
 
     # Group & Deduplicate
