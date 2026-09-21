@@ -241,9 +241,13 @@ def _call_llm_with_fallback(user_prompt: str) -> tuple[dict, str]:
                 gemini_key_idx += 1
                 return res, "gemini"
             except Exception as e:
-                print(f"[structure] Gemini call failed: {e}")
+                err_s = str(e).lower()
+                if "429" in err_s or "quota" in err_s:
+                    print(f"[structure] Gemini quota limit reached (429), switching provider...")
+                else:
+                    print(f"[structure] Gemini call failed: {e}")
                 gemini_key_idx += 1
-                if attempt < attempts - 1:
+                if attempt < attempts - 1 and "429" not in err_s:
                     time.sleep(1.0)
                     continue
 

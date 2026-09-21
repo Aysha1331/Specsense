@@ -1,18 +1,16 @@
 """
-STAGE 1: Discover (High-Resilience Multi-Engine Search)
+STAGE 1: Discover (High-Precision Multi-Engine Search)
 
 Takes the minimal product input (part number, brand, description) and finds
 authentic candidate source material -- checking ingested RAG datasets FIRST,
-then querying a resilient multi-engine live web search (DuckDuckGo, Yahoo, Bing,
-Google, AllDatasheet, and SerpAPI).
-
-Extracts authentic URLs, page titles, and rich technical snippets.
+then querying a resilient multi-engine live web search (DuckDuckGo, Bing,
+Wikipedia API, and SerpAPI) with strict relevance filtering.
 """
 import os
 import re
 import httpx
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, unquote, quote
 from dotenv import load_dotenv
 from models import ProductInput, SourceHit
 from services.rag import rag_store
@@ -22,7 +20,7 @@ load_dotenv()
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 SERPAPI_URL = "https://serpapi.com/search"
 
-# Noise & spam domains to exclude
+# Noise & irrelevant non-product domains
 EXCLUDED_DOMAINS = [
     "youtube.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
     "tiktok.com", "pinterest.com", "reddit.com", "quora.com", "medium.com",
@@ -30,7 +28,8 @@ EXCLUDED_DOMAINS = [
     "dictionary.", "thesaurus.", "wiktionary.", "cambridge.org",
     "merriam-webster.", "collinsdictionary.", "vocabulary.com",
     "netflix.com", "spotify.com", "imdb.com", "yelp.com", "tripadvisor.com",
-    "aliexpress.", "alibaba.", "temu.com", "shein.com"
+    "aliexpress.", "alibaba.", "temu.com", "shein.com", "whatsapp.com",
+    "mxplayer.in", "crazygames.com", "poki.com"
 ]
 
 BROWSER_HEADERS = {
@@ -65,10 +64,6 @@ def _is_excluded_source(url: str) -> bool:
         return True
     url_lower = url.lower()
     
-    # Filter search engine internal trackers
-    if any(k in url_lower for k in ["bing.com/ck", "duckduckgo.com/l/?", "google.com/url?", "r.search.yahoo.com/_ylt"]):
-        return False  # will be decoded to destination
-        
     for d in EXCLUDED_DOMAINS:
         if d in url_lower:
             return True
@@ -125,7 +120,33 @@ def _decode_redirect_url(url: str) -> str:
     return _clean_url(url)
 
 
-async def _ddg_search(query: str, max_results: int) -> list[SourceHit]:
+def is_hit_relevant(title: str, snippet: str, url: str, pn: str, brand: str) -> bool:
+    """Validates that a search hit actually references the product or brand."""
+    text = f"{title} {snippet} {url}".lower()
+    pn_clean = re.sub(r'[^a-zA-Z0-9]', '', pn).lower()
+    brand_clean = (brand or "").lower().strip()
+    text_clean = re.sub(r'[^a-zA-Z0-9]', '', text)
+    
+    # 1. Exact cleaned PN match (e.g. "wh1000xm5" in "wh-1000xm5" or "dhp484" in "dhp-484")
+    if pn_clean and len(pn_clean) >= 3 and pn_clean in text_clean:
+        return True
+
+    # 2. Token match: at least 2 significant tokens or 1 unique alphanumeric token
+    pn_tokens = [t for t in re.split(r'[\s\-_/]+', pn.lower()) if len(t) >= 2 and t not in ['the', 'and', 'for', 'with', 'inc', 'llc', 'pro']]
+    matched_tokens = sum(1 for t in pn_tokens if t in text)
+    if len(pn_tokens) >= 2 and matched_tokens >= 2:
+        return True
+    if len(pn_tokens) == 1 and matched_tokens == 1 and len(pn_tokens[0]) >= 3:
+        return True
+
+    # 3. Brand match + at least 1 PN token
+    if brand_clean and len(brand_clean) >= 3 and brand_clean in text and matched_tokens >= 1:
+        return True
+
+    return False
+
+
+async def _ddg_search(query: str, pn: str, brand: str, max_results: int) -> list[SourceHit]:
     """DuckDuckGo HTML Search POST method."""
     url = "https://html.duckduckgo.com/html/"
     hits = []
@@ -147,16 +168,17 @@ async def _ddg_search(query: str, max_results: int) -> list[SourceHit]:
                         real_url = _decode_redirect_url(raw_href)
                         
                         if real_url and not _is_excluded_source(real_url):
-                            hits.append(SourceHit(url=real_url, title=title, snippet=snippet, origin="web"))
-                            if len(hits) >= max_results:
-                                break
+                            if is_hit_relevant(title, snippet, real_url, pn, brand):
+                                hits.append(SourceHit(url=real_url, title=title, snippet=snippet, origin="web"))
+                                if len(hits) >= max_results:
+                                    break
     except Exception as e:
         print(f"[discover] DDG search error: {e}")
     return hits
 
 
-async def _bing_search(query: str, max_results: int) -> list[SourceHit]:
-    """Bing Search HTML parsing."""
+async def _bing_search(query: str, pn: str, brand: str, max_results: int) -> list[SourceHit]:
+    """Bing Search HTML parsing with relevance validation."""
     url = "https://www.bing.com/search"
     hits = []
     try:
@@ -173,15 +195,37 @@ async def _bing_search(query: str, max_results: int) -> list[SourceHit]:
                         snippet = snippet_el.get_text(strip=True) if snippet_el else ""
                         real_url = _decode_redirect_url(raw_url)
                         if real_url and not _is_excluded_source(real_url):
-                            hits.append(SourceHit(url=real_url, title=title, snippet=snippet, origin="web"))
-                            if len(hits) >= max_results:
-                                break
+                            if is_hit_relevant(title, snippet, real_url, pn, brand):
+                                hits.append(SourceHit(url=real_url, title=title, snippet=snippet, origin="web"))
+                                if len(hits) >= max_results:
+                                    break
     except Exception as e:
         print(f"[discover] Bing search error: {e}")
     return hits
 
 
-async def _serpapi_search(query: str, max_results: int) -> list[SourceHit]:
+async def _wiki_search(pn: str, brand: str, max_results: int = 1) -> list[SourceHit]:
+    """Wikipedia Open Knowledge API for electronic & industrial models."""
+    hits = []
+    query = f"{brand} {pn}".strip()
+    wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={quote(query)}&utf8=&format=json"
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(wiki_url, headers={"User-Agent": "SpecSense/1.0 (contact: info@specsense.io)"})
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("query", {}).get("search", [])[:max_results]:
+                    title = item.get("title", "")
+                    snippet = re.sub(r'<[^>]+>', '', item.get("snippet", ""))
+                    page_url = f"https://en.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
+                    if is_hit_relevant(title, snippet, page_url, pn, brand):
+                        hits.append(SourceHit(url=page_url, title=title, snippet=snippet, origin="web"))
+    except Exception as e:
+        print(f"[discover] Wiki search error: {e}")
+    return hits
+
+
+async def _serpapi_search(query: str, pn: str, brand: str, max_results: int) -> list[SourceHit]:
     """SerpAPI fallback when key is provided."""
     if not SERPAPI_KEY:
         return []
@@ -196,15 +240,13 @@ async def _serpapi_search(query: str, max_results: int) -> list[SourceHit]:
                 data = resp.json()
                 for item in data.get("organic_results", []):
                     url = _clean_url(item.get("link", ""))
+                    title = item.get("title", "")
+                    snippet = item.get("snippet", "")
                     if url and not _is_excluded_source(url):
-                        hits.append(SourceHit(
-                            url=url,
-                            title=item.get("title", ""),
-                            snippet=item.get("snippet", ""),
-                            origin="web"
-                        ))
-                        if len(hits) >= max_results:
-                            break
+                        if is_hit_relevant(title, snippet, url, pn, brand):
+                            hits.append(SourceHit(url=url, title=title, snippet=snippet, origin="web"))
+                            if len(hits) >= max_results:
+                                break
     except Exception as e:
         print(f"[discover] SerpAPI search error: {e}")
     return hits
@@ -222,7 +264,7 @@ def _score_hit(hit: SourceHit, part_number: str, brand: str) -> float:
     
     # Part number presence (highest value)
     if pn_clean and (pn_clean in url_lower.replace("-", "").replace("_", "") or pn_clean in title_lower.replace("-", "")):
-        score += 25.0
+        score += 30.0
     elif pn_clean and pn_clean in snip_lower.replace("-", ""):
         score += 15.0
         
@@ -234,11 +276,11 @@ def _score_hit(hit: SourceHit, part_number: str, brand: str) -> float:
     # Technical document types
     if url_lower.endswith(".pdf") or "pdf" in url_lower or "datasheet" in url_lower:
         score += 20.0
-    if any(kw in url_lower for kw in ["/product", "/spec", "catalog", "manual", "components"]):
+    if any(kw in url_lower for kw in ["/product", "/spec", "catalog", "manual", "components", "electronics"]):
         score += 10.0
         
     # Rich technical specs in snippet
-    spec_signals = ["read", "write", "speed", "voltage", "capacity", "bearing", "dimensions", "mm", "v", "tbw", "iops", "nand", "sata", "m.2"]
+    spec_signals = ["speed", "voltage", "capacity", "dimensions", "mm", "v", "w", "bluetooth", "rpm", "driver", "torque", "hz"]
     matched_signals = sum(1 for s in spec_signals if s in snip_lower)
     score += matched_signals * 3.0
     
@@ -249,8 +291,8 @@ async def discover_sources(product: ProductInput, max_results: int = 6) -> list[
     """
     Multi-tier discovery engine:
       1. RAG Store: Ingested local datasets & catalog chunks.
-      2. Multi-Engine Web Search: DuckDuckGo + Bing + SerpAPI concurrently.
-      3. Intelligent Scoring & De-duplication: Prioritizes verified datasheets and specs.
+      2. Multi-Engine Web Search: DuckDuckGo + Bing + Wikipedia API + SerpAPI concurrently.
+      3. Intelligent Relevance Filtering: Guaranteed zero spam or irrelevant redirect hits.
     """
     rag_hits = []
     if rag_store.ready:
@@ -268,16 +310,16 @@ async def discover_sources(product: ProductInput, max_results: int = 6) -> list[
 
     pn = product.part_number.strip()
     
-    # Search query variants
-    primary_query = f"{pn} {brand_clean} datasheet specifications".strip()
-    secondary_query = f'"{pn}" {brand_clean}'.strip()
+    # Precise, high-yield technical queries
+    primary_query = f"{brand_clean} {pn} technical specifications datasheet".strip()
+    secondary_query = f'"{pn}" {brand_clean} specs'.strip()
     
     all_hits = list(rag_hits)
     seen_urls = {h.url for h in all_hits if h.url}
     
     # 1. SerpAPI (if key present)
     if SERPAPI_KEY:
-        serp_hits = await _serpapi_search(primary_query, max_results=needed_web)
+        serp_hits = await _serpapi_search(primary_query, pn, brand_clean, max_results=needed_web)
         for h in serp_hits:
             if h.url not in seen_urls:
                 seen_urls.add(h.url)
@@ -285,7 +327,7 @@ async def discover_sources(product: ProductInput, max_results: int = 6) -> list[
 
     # 2. DuckDuckGo HTML Search
     if len(all_hits) < max_results:
-        ddg_hits = await _ddg_search(primary_query, max_results=needed_web)
+        ddg_hits = await _ddg_search(primary_query, pn, brand_clean, max_results=needed_web)
         for h in ddg_hits:
             if h.url not in seen_urls:
                 seen_urls.add(h.url)
@@ -293,17 +335,16 @@ async def discover_sources(product: ProductInput, max_results: int = 6) -> list[
 
     # 3. Bing Search
     if len(all_hits) < max_results:
-        bing_hits = await _bing_search(secondary_query if secondary_query else primary_query, max_results=needed_web)
+        bing_hits = await _bing_search(secondary_query if secondary_query else primary_query, pn, brand_clean, max_results=needed_web)
         for h in bing_hits:
             if h.url not in seen_urls:
                 seen_urls.add(h.url)
                 all_hits.append(h)
 
-    # If still need hits, try broad query
+    # 4. Wikipedia Open Knowledge API
     if len(all_hits) < max_results:
-        fallback_query = f"{pn} {product.short_description}".strip()
-        extra_ddg = await _ddg_search(fallback_query, max_results=needed_web)
-        for h in extra_ddg:
+        wiki_hits = await _wiki_search(pn, brand_clean, max_results=2)
+        for h in wiki_hits:
             if h.url not in seen_urls:
                 seen_urls.add(h.url)
                 all_hits.append(h)

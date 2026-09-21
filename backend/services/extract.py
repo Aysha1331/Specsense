@@ -11,9 +11,13 @@ import httpx
 import io
 import re
 import json
+import logging
 from bs4 import BeautifulSoup
 import pdfplumber
 from models import SourceHit
+
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+logging.getLogger("pdfplumber").setLevel(logging.ERROR)
 
 MAX_CHARS = 25000
 
