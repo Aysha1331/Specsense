@@ -195,13 +195,47 @@ def _infer_category(pn: str, brand: str, desc: str, title: str) -> str:
     if re.search(r'\b(?:circuit breaker|mcb|mccb|contactor)\b', target):
         return "Circuit Breakers & Contactors"
 
-    # Fallback to synthesized category from short description
-    if desc and len(desc.strip()) > 3:
-        clean_desc = re.sub(r'[^a-zA-Z0-9\s]', ' ', desc)
-        words = [w.capitalize() for w in clean_desc.split() if len(w) > 2 and w.lower() not in ["the", "and", "for", "with", "inc", "llc", "high", "performance", "industrial", "new", "best", "genuine", "original"]]
-        if len(words) >= 2:
-            return " ".join(words[:3])
+    # 20. Sensors & Transducers
+    if re.search(r'\b(?:proximity sensor|photoelectric|inductive sensor|capacitive sensor|pressure transducer|thermocouple|rtd sensor|flow meter|load cell)\b', target):
+        return "Industrial Sensors & Transducers"
 
+    # 21. Electric Motors & Actuators
+    if re.search(r'\b(?:servo motor|stepper motor|ac motor|dc motor|induction motor|gear motor|linear actuator)\b', target):
+        return "Electric Motors & Drives"
+
+    # 22. Pneumatics & Hydraulics
+    if re.search(r'\b(?:air cylinder|pneumatic cylinder|hydraulic cylinder|air filter regulator|solenoid valve manifold)\b', target):
+        return "Pneumatic & Hydraulic Components"
+
+    # 23. Electrical Wiring, Relays & Contactors
+    if re.search(r'\b(?:solid state relay|electromechanical relay|terminal block|din rail terminal|magnetic contactor|motor starter)\b', target):
+        return "Electrical Control & Switching"
+
+    # 24. Displays & Monitors
+    if re.search(r'\b(?:monitor|oled display|gaming monitor|lcd display|hmi panel|touchscreen display)\b', target):
+        return "Monitors & Visual Displays"
+
+    # 25. Hand Tools & Mechanics
+    if re.search(r'\b(?:socket set|torque wrench|combination wrench|hex key|screwdriver set|plier|ratchet)\b', target):
+        return "Hand Tools & Mechanics Equipment"
+
+    # 26. Precision Measurement & Gauges
+    if re.search(r'\b(?:digital caliper|micrometer|dial indicator|bore gauge|feeler gauge|laser measure)\b', target):
+        return "Precision Measurement & Inspection"
+
+    # 27. Safety Equipment & PPE
+    if re.search(r'\b(?:safety glasses|welding helmet|respirator mask|ear protection|safety harness)\b', target):
+        return "Safety & Personal Protective Equipment (PPE)"
+
+    # 28. Lighting & Illumination
+    if re.search(r'\b(?:led work light|flashlight|headlamp|high bay light|floodlight)\b', target):
+        return "Industrial & Workshop Lighting"
+
+    # 29. Fasteners & Mechanical Hardware
+    if re.search(r'\b(?:hex cap screw|socket head cap|threaded rod|lock nut|flat washer|flange bolt)\b', target):
+        return "Industrial Fasteners & Hardware"
+
+    # Standardized Canonical Fallback (Never copy raw user description words)
     return "Industrial & Electronic Hardware"
 
 

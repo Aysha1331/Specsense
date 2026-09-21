@@ -46,11 +46,12 @@ You are given a product's part number, brand, and text/tables from MULTIPLE sear
 
 For EACH source, extract ONLY facts and technical specifications verified in that text:
 
-1. category: The standardized product category (e.g. "Solid State Drives (SSDs)", "Deep Groove Ball Bearings", "Programmable Logic Controllers (PLCs)", "Circular Saw Blades", "Miniature Circuit Breakers").
-2. brand: The true product brand name (e.g. "Crucial", "Micron", "SKF", "Siemens", "Diablo", "Western Digital", "Schneider Electric"). Never use distributor or retailer names.
+1. category: The standardized product taxonomy category (e.g. "Solid State Drives (SSDs)", "Smartphones & Mobile Devices", "Laptops & Notebooks", "Graphics Cards (GPUs)", "Deep Groove Ball Bearings", "Programmable Logic Controllers (PLCs)", "Cordless Drills & Drivers", "Digital Multimeters & Electrical Testers", "Wireless Routers & Networking").
+   CRITICAL: NEVER copy the user's input description verbatim or use arbitrary sentence fragments as the category. Always use standard taxonomy names.
+2. brand: The true product brand name (e.g. "Crucial", "Micron", "SKF", "Siemens", "Apple", "NVIDIA", "Fluke", "Makita"). Never use distributor or retailer names.
 3. manufacturer: The manufacturing company.
-4. short_desc: A concise ~10-15 word description highlighting key specifications.
-5. long_desc: A detailed 1-3 sentence summary covering core parameters, interfaces, and applications.
+4. short_desc: A clean, synthesized commerce title / short description (approx 8-15 words) formatted as "[Brand] [Part Number] [Category] - [Key Spec 1], [Key Spec 2]". Do NOT simply repeat whatever raw input text was provided.
+5. long_desc: A detailed 2-3 sentence technical overview synthesizing key verified parameters (processor/motor, speeds, capacities, interface, dimensions, ratings).
 6. attributes: EVERY verified technical attribute mentioned in the source (e.g. Capacity, Interface, Sequential Read Speed, Sequential Write Speed, NAND Flash Type, TBW, Dimensions, Voltage, Current, Power Rating, Operating Temperature, Mounting Type, Approvals/Standards, Warranty).
    Each attribute must have:
    - label: Clear, standardized attribute name in Title Case (e.g. "Storage Capacity", "Sequential Read Speed", "Supply Voltage", "Operating Temperature Range").
@@ -60,6 +61,7 @@ For EACH source, extract ONLY facts and technical specifications verified in tha
 CRITICAL INSTRUCTIONS:
 - Do NOT hallucinate or guess random 400V 3-phase machinery attributes for computer hardware, SSDs, consumer electronics, or hand tools.
 - Extract actual parametric numbers (speeds, dimensions, voltages, interfaces, capacities) from the source text.
+- Do NOT repeat or copy arbitrary sentences from the input description into the output fields.
 
 Respond ONLY with valid JSON in this exact structure:
 {
@@ -157,11 +159,13 @@ def _call_gemini(user_prompt: str) -> dict:
     genai.configure(api_key=current_key)
     
     models_to_try = [
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        "gemini-3.1-flash-lite",
         "gemini-flash-latest",
-        "gemini-pro-latest",
-        "gemini-2.5-pro",
+        "gemini-3.6-flash",
     ]
     
     for m_name in models_to_try:
@@ -176,11 +180,9 @@ def _call_gemini(user_prompt: str) -> dict:
                 return _parse_json_loosely(response.text)
         except Exception as me:
             err_str = str(me).lower()
-            if "not found" in err_str or "404" in err_str:
-                continue
-            if "429" in err_str or "quota" in err_str:
-                raise me
-    raise RuntimeError("No available Gemini model responded.")
+            print(f"[structure] Gemini model '{m_name}' unavailable ({me}) - trying next model in pool...")
+            continue
+    raise RuntimeError("All available Gemini models in pool were exhausted or unavailable.")
 
 
 def _call_groq(user_prompt: str) -> dict:
